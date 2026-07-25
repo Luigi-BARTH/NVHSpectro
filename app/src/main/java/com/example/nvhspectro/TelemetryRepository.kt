@@ -2,10 +2,6 @@ package com.example.nvhspectro
 
 import android.annotation.SuppressLint
 import android.content.Context
-import android.hardware.Sensor
-import android.hardware.SensorEvent
-import android.hardware.SensorEventListener
-import android.hardware.SensorManager
 import android.os.Looper
 import com.google.android.gms.location.*
 import kotlinx.coroutines.channels.awaitClose
@@ -31,66 +27,64 @@ data class TelemetryData(
 class TelemetryRepository(private val context: Context) {
     private val fusedLocationClient: FusedLocationProviderClient = 
         LocationServices.getFusedLocationProviderClient(context)
-    private val sensorManager = context.getSystemService(Context.SENSOR_SERVICE) as SensorManager
-    private val accelerometer = sensorManager.getDefaultSensor(Sensor.TYPE_LINEAR_ACCELERATION)
 
     @SuppressLint("MissingPermission")
     fun startTelemetry(): Flow<TelemetryData> = callbackFlow {
         var currentData = TelemetryData()
+        var lastSpeedMs = 0f
+        var lastTimeMs = 0L
 
-        // Listener Capteurs (Accélération linéaire)
-        val sensorListener = object : SensorEventListener {
-            override fun onSensorChanged(event: SensorEvent?) {
-                event?.let {
-                    val y = it.values[1] 
-                    val g = y / 9.81f // conversion en G
-                    
-                    currentData = currentData.copy(
-                        accelerationG = g,
-                        timestampMs = System.currentTimeMillis()
-                    )
-                    trySend(currentData)
-                }
-            }
-            override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {}
-        }
-
-        // Configuration GPS haute précision
-        val locationRequest = LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, 500)
-            .setMinUpdateIntervalMillis(200)
+        // Configuration GPS haute précision (Fréquence d'échantillonnage élevée)
+        val locationRequest = LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, 200)
+            .setMinUpdateIntervalMillis(100)
             .build()
 
         val locationCallback = object : LocationCallback() {
             override fun onLocationResult(result: LocationResult) {
                 result.lastLocation?.let { loc ->
-                    val speed = if (loc.hasSpeed()) (loc.speed * 3.6f) else 0f
+                    val nowMs = loc.time
+                    val speedMs = if (loc.hasSpeed()) loc.speed else 0f // m/s
+                    val speedKmh = speedMs * 3.6f // km/h
                     val accuracy = if (loc.hasAccuracy()) loc.accuracy else 999f
                     
+                    // Calcul 100% GPS de l'accélération (dérivée de la vitesse GPS par rapport au temps GPS)
+                    var accelG = 0f
+                    if (lastTimeMs > 0 && nowMs > lastTimeMs) {
+                        val dt = (nowMs - lastTimeMs) / 1000.0f // delta temps en secondes
+                        val dv = speedMs - lastSpeedMs // delta vitesse en m/s
+                        if (dt > 0.05f) {
+                            val accelMss = dv / dt // accélération en m/s²
+                            accelG = accelMss / 9.81f // conversion pure en G
+                        }
+                    }
+                    
+                    lastSpeedMs = speedMs
+                    lastTimeMs = nowMs
+
                     val status = when {
                         accuracy <= 10f -> GpsStatus.GOOD
                         accuracy <= 30f -> GpsStatus.POOR
                         else -> GpsStatus.NONE
                     }
 
-                    currentData = currentData.copy(
-                        speedKmh = speed,
+                    currentData = TelemetryData(
+                        speedKmh = speedKmh,
                         altitude = loc.altitude,
                         latitude = loc.latitude,
                         longitude = loc.longitude,
+                        accelerationG = accelG,
                         gpsStatus = status,
-                        timestampMs = System.currentTimeMillis()
+                        timestampMs = nowMs
                     )
                     trySend(currentData)
                 }
             }
         }
 
-        // Démarrage
-        sensorManager.registerListener(sensorListener, accelerometer, SensorManager.SENSOR_DELAY_UI)
+        // Démarrage GPS 100% pur
         fusedLocationClient.requestLocationUpdates(locationRequest, locationCallback, Looper.getMainLooper())
 
         awaitClose {
-            sensorManager.unregisterListener(sensorListener)
             fusedLocationClient.removeLocationUpdates(locationCallback)
         }
     }
