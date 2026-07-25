@@ -7,7 +7,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.Stroke
@@ -21,7 +20,7 @@ enum class TelemetryMetric(val label: String, val unit: String) {
     SPEED("Vitesse", "km/h"),
     ACCELERATION("Accélération", "g"),
     ALTITUDE("Altitude", "m"),
-    TTNR("TTNR", "dB")
+    TTNR("TTNR (Spectre 2D)", "dB")
 }
 
 @Composable
@@ -30,12 +29,15 @@ fun TelemetryGraph(
     metric: TelemetryMetric,
     timeWindowSec: Double,
     historySize: Int = 150,
+    ttnrSpectrum: DoubleArray = DoubleArray(0),
+    maxFreq: Int = 10000,
+    sampleRate: Int = 44100,
     modifier: Modifier = Modifier
 ) {
     val textPaint = remember {
         Paint().apply {
             color = android.graphics.Color.WHITE
-            textSize = 28f
+            textSize = 26f
             typeface = Typeface.DEFAULT_BOLD
             isAntiAlias = true
         }
@@ -61,69 +63,120 @@ fun TelemetryGraph(
         val plotWidth = w - marginLeft - marginRight
         val plotHeight = h - marginTop - marginBottom
 
-        // Extraction des valeurs de la métrique sélectionnée
-        val values = history.map { data ->
-            when (metric) {
-                TelemetryMetric.SPEED -> data.speedKmh.toDouble()
-                TelemetryMetric.ACCELERATION -> data.accelerationG.toDouble()
-                TelemetryMetric.ALTITUDE -> data.altitude
-                TelemetryMetric.TTNR -> data.ttnrDb.toDouble()
+        if (metric == TelemetryMetric.TTNR) {
+            // =========================================================================
+            // MODE SPECTRE 2D TTNR : ABSCISSE = FRÉQUENCE (Hz), ORDONNÉE = ÉMERGENCE (dB)
+            // =========================================================================
+            val maxTtnrDb = 20.0 // Échelle 0 dB à 20+ dB TTNR
+            val totalBins = if (ttnrSpectrum.isNotEmpty()) ttnrSpectrum.size else 1024
+            val nyquist = sampleRate / 2
+            val displayedBins = min(totalBins, (maxFreq * totalBins) / nyquist)
+
+            drawIntoCanvas { canvas ->
+                val native = canvas.nativeCanvas
+
+                // Grille de fond
+                native.drawLine(marginLeft, marginTop, marginLeft, marginTop + plotHeight, gridPaint)
+                native.drawLine(marginLeft, marginTop + plotHeight, marginLeft + plotWidth, marginTop + plotHeight, gridPaint)
+
+                // Graduation Axe Y (Émergence TTNR en dB)
+                native.drawText("+20 dB TTNR", 10f, marginTop + 25f, textPaint)
+                native.drawText("0 dB", 10f, marginTop + plotHeight, textPaint)
+
+                // Graduation Axe X (Fréquence en Hz)
+                native.drawText("0 Hz", marginLeft - 15f, marginTop + plotHeight + 32f, textPaint)
+                native.drawText("${maxFreq / 2} Hz", marginLeft + plotWidth / 2f - 40f, marginTop + plotHeight + 32f, textPaint)
+                native.drawText("${maxFreq} Hz", marginLeft + plotWidth - 80f, marginTop + plotHeight + 32f, textPaint)
             }
-        }
 
-        val minVal = if (values.isNotEmpty()) values.minOrNull() ?: 0.0 else 0.0
-        val maxVal = if (values.isNotEmpty()) values.maxOrNull() ?: 1.0 else 1.0
-        val valRange = if (maxVal > minVal) maxVal - minVal else 1.0
+            // Tracé de la courbe du spectre d'émergence 2D
+            if (ttnrSpectrum.isNotEmpty() && displayedBins > 1) {
+                val path = Path()
 
-        // Dessiner la grille de fond
-        drawIntoCanvas { canvas ->
-            val native = canvas.nativeCanvas
+                for (bin in 0 until displayedBins) {
+                    val fractionX = bin.toFloat() / max(1, displayedBins - 1)
+                    val x = marginLeft + fractionX * plotWidth
 
-            // Ligne du bas (Axe X) et de gauche (Axe Y)
-            native.drawLine(marginLeft, marginTop, marginLeft, marginTop + plotHeight, gridPaint)
-            native.drawLine(marginLeft, marginTop + plotHeight, marginLeft + plotWidth, marginTop + plotHeight, gridPaint)
+                    val ttnrVal = ttnrSpectrum[bin].coerceIn(0.0, maxTtnrDb)
+                    val normY = (ttnrVal / maxTtnrDb).toFloat()
+                    val y = (marginTop + plotHeight) - (normY * plotHeight)
 
-            // Labels Min et Max sur l'axe Y
-            val maxStr = String.format("%.1f %s", maxVal, metric.unit)
-            val minStr = String.format("%.1f %s", minVal, metric.unit)
-            native.drawText(maxStr, 10f, marginTop + 25f, textPaint)
-            native.drawText(minStr, 10f, marginTop + plotHeight, textPaint)
-        }
+                    if (bin == 0) {
+                        path.moveTo(x, y)
+                    } else {
+                        path.lineTo(x, y)
+                    }
+                }
 
-        // Trace de la courbe si assez de données
-        if (values.size > 1) {
-            val path = Path()
-            val pointCount = values.size
-            val targetHistSize = max(historySize, pointCount)
-
-            for (i in 0 until pointCount) {
-                // Synchronisation temporelle 1-to-1 exacte avec le colormap
-                // i = 0 est le point le plus récent (à droite : marginLeft + plotWidth)
-                val fractionX = i.toFloat() / max(1, targetHistSize - 1)
-                val x = marginLeft + (1f - fractionX) * plotWidth
-
-                val normY = ((values[i] - minVal) / valRange).toFloat()
-                val y = (marginTop + plotHeight) - (normY * plotHeight)
-
-                if (i == 0) {
-                    path.moveTo(x, y)
-                } else {
-                    path.lineTo(x, y)
+                drawPath(
+                    path = path,
+                    color = Color(0xFFD500F9), // Neon Magenta
+                    style = Stroke(width = 3.5f)
+                )
+            }
+        } else {
+            // =========================================================================
+            // MODES TÉLÉMÉTRIE (Vitesse, Accélération, Altitude) : ABSCISSE = TEMPS (s)
+            // =========================================================================
+            val values = history.map { data ->
+                when (metric) {
+                    TelemetryMetric.SPEED -> data.speedKmh.toDouble()
+                    TelemetryMetric.ACCELERATION -> data.accelerationG.toDouble()
+                    TelemetryMetric.ALTITUDE -> data.altitude
+                    else -> 0.0
                 }
             }
 
-            val strokeColor = when (metric) {
-                TelemetryMetric.SPEED -> Color(0xFF00E676) // Vert fluo
-                TelemetryMetric.ACCELERATION -> Color(0xFFFF9100) // Orange vif
-                TelemetryMetric.ALTITUDE -> Color(0xFF00B0FF) // Bleu cyan
-                TelemetryMetric.TTNR -> Color(0xFFD500F9) // Violet / Magenta néon
+            val minVal = if (values.isNotEmpty()) values.minOrNull() ?: 0.0 else 0.0
+            val maxVal = if (values.isNotEmpty()) values.maxOrNull() ?: 1.0 else 1.0
+            val valRange = if (maxVal > minVal) maxVal - minVal else 1.0
+
+            drawIntoCanvas { canvas ->
+                val native = canvas.nativeCanvas
+
+                // Grille de fond
+                native.drawLine(marginLeft, marginTop, marginLeft, marginTop + plotHeight, gridPaint)
+                native.drawLine(marginLeft, marginTop + plotHeight, marginLeft + plotWidth, marginTop + plotHeight, gridPaint)
+
+                // Labels Y
+                val maxStr = String.format("%.1f %s", maxVal, metric.unit)
+                val minStr = String.format("%.1f %s", minVal, metric.unit)
+                native.drawText(maxStr, 10f, marginTop + 25f, textPaint)
+                native.drawText(minStr, 10f, marginTop + plotHeight, textPaint)
             }
 
-            drawPath(
-                path = path,
-                color = strokeColor,
-                style = Stroke(width = 4f)
-            )
+            if (values.size > 1) {
+                val path = Path()
+                val pointCount = values.size
+                val targetHistSize = max(historySize, pointCount)
+
+                for (i in 0 until pointCount) {
+                    val fractionX = i.toFloat() / max(1, targetHistSize - 1)
+                    val x = marginLeft + (1f - fractionX) * plotWidth
+
+                    val normY = ((values[i] - minVal) / valRange).toFloat()
+                    val y = (marginTop + plotHeight) - (normY * plotHeight)
+
+                    if (i == 0) {
+                        path.moveTo(x, y)
+                    } else {
+                        path.lineTo(x, y)
+                    }
+                }
+
+                val strokeColor = when (metric) {
+                    TelemetryMetric.SPEED -> Color(0xFF00E676) // Vert fluo
+                    TelemetryMetric.ACCELERATION -> Color(0xFFFF9100) // Orange vif
+                    TelemetryMetric.ALTITUDE -> Color(0xFF00B0FF) // Bleu cyan
+                    else -> Color.White
+                }
+
+                drawPath(
+                    path = path,
+                    color = strokeColor,
+                    style = Stroke(width = 4f)
+                )
+            }
         }
     }
 }

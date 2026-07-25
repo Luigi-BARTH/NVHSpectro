@@ -49,6 +49,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         if (mode == DisplayMode.TTNR) ttnrList else absList
     }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
     
+    private val _latestTTNRSpectrum = MutableStateFlow<DoubleArray>(DoubleArray(0))
+    val latestTTNRSpectrum: StateFlow<DoubleArray> = _latestTTNRSpectrum.asStateFlow()
+    
     private val _telemetryHistory = MutableStateFlow<List<TelemetryData>>(emptyList())
     val telemetryHistory: StateFlow<List<TelemetryData>> = _telemetryHistory.asStateFlow()
 
@@ -138,6 +141,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     
                     // Traitement TTNR (Émergence tonale ECMA-74)
                     val ttnrSpectrum = fftProcessor.computeTTNR(magnitudes, 44100)
+                    _latestTTNRSpectrum.value = ttnrSpectrum
                     
                     // Mettre à jour l'historique Absolu
                     val curAbs = _fftHistoryAbsolute.value.toMutableList()

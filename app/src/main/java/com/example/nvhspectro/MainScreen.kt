@@ -59,6 +59,7 @@ fun AppScreen(viewModel: MainViewModel) {
     val selectedMetric by viewModel.selectedMetric.collectAsState()
 
     val fftHistory by viewModel.fftHistory.collectAsState()
+    val latestTTNRSpectrum by viewModel.latestTTNRSpectrum.collectAsState()
     val isRecording by viewModel.isRecording.collectAsState()
     
     val minDb by viewModel.minDb.collectAsState()
@@ -233,7 +234,9 @@ fun AppScreen(viewModel: MainViewModel) {
                             history = telemetryHistory,
                             metric = selectedMetric,
                             timeWindowSec = timeWindowSec,
-                            historySize = viewModel.historySize
+                            historySize = viewModel.historySize,
+                            ttnrSpectrum = latestTTNRSpectrum,
+                            maxFreq = maxFreq
                         )
                     }
                 }
