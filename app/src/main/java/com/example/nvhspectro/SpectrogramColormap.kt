@@ -2,9 +2,12 @@ package com.example.nvhspectro
 
 import android.graphics.Bitmap
 import android.graphics.Color as AndroidColor
+import android.graphics.DashPathEffect
 import android.graphics.Paint
 import android.graphics.Typeface
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
@@ -13,6 +16,7 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.graphics.nativeCanvas
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import kotlin.math.max
@@ -59,14 +63,15 @@ fun SpectrogramCanvas(
 
     val totalBinCount = history.first().size
     val nyquistFreq = sampleRate / 2
-    // On ne dessine que jusqu'à la fréquence max demandée
     val displayedBinCount = minOf(totalBinCount, (maxFreq * totalBinCount) / nyquistFreq)
     val actualMaxFreq = (displayedBinCount * nyquistFreq) / totalBinCount
 
     val bitmapWidth = historySize
     val bitmapHeight = displayedBinCount
 
-    // On mémorise un Bitmap persistant
+    // Position verticale du curseur (0.0f = Haut / MaxFreq, 1.0f = Bas / 0 Hz)
+    var cursorYRatio by remember { mutableFloatStateOf(0.5f) }
+
     val bitmap by remember(bitmapWidth, bitmapHeight) {
         mutableStateOf(Bitmap.createBitmap(bitmapWidth, bitmapHeight, Bitmap.Config.ARGB_8888))
     }
@@ -115,20 +120,72 @@ fun SpectrogramCanvas(
         }
     }
 
-    Canvas(modifier = modifier.fillMaxSize()) {
+    // Peinture discrète pour le curseur (ligne cyan pointillée)
+    val cursorLinePaint = remember {
+        Paint().apply {
+            color = AndroidColor.parseColor("#00E5FF") // Cyan vif discret
+            strokeWidth = 2.5f
+            pathEffect = DashPathEffect(floatArrayOf(12f, 8f), 0f)
+            isAntiAlias = true
+        }
+    }
+
+    val cursorBadgeBgPaint = remember {
+        Paint().apply {
+            color = AndroidColor.parseColor("#E6002A36") // Cyan très sombre translucide
+            style = Paint.Style.FILL
+            isAntiAlias = true
+        }
+    }
+
+    val cursorBadgeTextPaint = remember {
+        Paint().apply {
+            color = AndroidColor.parseColor("#00E5FF")
+            textSize = 30f
+            typeface = Typeface.DEFAULT_BOLD
+            isAntiAlias = true
+        }
+    }
+
+    Canvas(
+        modifier = modifier
+            .fillMaxSize()
+            .pointerInput(Unit) {
+                detectDragGestures { change, _ ->
+                    val marginTop = 60f
+                    val marginBottom = 120f
+                    val plotHeight = size.height - marginTop - marginBottom
+                    if (plotHeight > 0) {
+                        val touchY = change.position.y
+                        val relativeY = (touchY - marginTop).coerceIn(0f, plotHeight)
+                        cursorYRatio = relativeY / plotHeight
+                    }
+                }
+            }
+            .pointerInput(Unit) {
+                detectTapGestures { offset ->
+                    val marginTop = 60f
+                    val marginBottom = 120f
+                    val plotHeight = size.height - marginTop - marginBottom
+                    if (plotHeight > 0) {
+                        val relativeY = (offset.y - marginTop).coerceIn(0f, plotHeight)
+                        cursorYRatio = relativeY / plotHeight
+                    }
+                }
+            }
+    ) {
         val w = size.width
         val h = size.height
 
-        // On réserve de l'espace autour du graphe pour éviter les rognages
         val marginLeft = 150f
-        val marginTop = 60f       // Marge supérieure pour dégager le haut de l'axe Y
-        val marginBottom = 120f   // Marge inférieure pour l'axe X et ses graduations
-        val marginRight = 40f     // Marge droite
+        val marginTop = 60f
+        val marginBottom = 120f
+        val marginRight = 40f
         
         val plotWidth = w - marginLeft - marginRight
         val plotHeight = h - marginTop - marginBottom
 
-        // 1. Dessiner l'image du spectrogramme redimensionnée dans la zone du graphe
+        // 1. Dessiner le spectrogramme
         drawImage(
             image = imageBitmap,
             srcOffset = IntOffset.Zero,
@@ -151,22 +208,40 @@ fun SpectrogramCanvas(
                 val f = actualMaxFreq - (i * actualMaxFreq / ySteps)
                 val y = marginTop + i * (plotHeight / ySteps)
                 
-                // Ligne de tick
                 native.drawLine(marginLeft - 15f, y, marginLeft, y, tickPaint)
                 
-                // Positionnement vertical ajusté pour ne jamais sortir en haut
                 val textY = when (i) {
-                    0 -> y + 25f          // Premier label (haut) : pousser légèrement vers le bas
-                    ySteps -> y - 5f      // Dernier label (bas) : remonter légèrement
+                    0 -> y + 25f
+                    ySteps -> y - 5f
                     else -> y + 10f
                 }
                 native.drawText("${f} Hz", 10f, textY, textPaint)
             }
 
+            // --- CURSEUR EN FRÉQUENCE DISCRET ---
+            val cursorY = marginTop + cursorYRatio * plotHeight
+            val selectedFreqHz = ((1f - cursorYRatio) * actualMaxFreq).toInt() // Entier sans décimale !
+
+            // Ligne pointillée horizontale sur toute la largeur de l'image
+            native.drawLine(marginLeft, cursorY, plotRight, cursorY, cursorLinePaint)
+
+            // Badge de fréquence interactif attaché au curseur sur l'axe Y
+            val freqStr = "$selectedFreqHz Hz"
+            val badgeTextWidth = cursorBadgeTextPaint.measureText(freqStr)
+            val badgePaddingHorizontal = 12f
+            val badgeHeight = 38f
+
+            val badgeLeft = marginLeft + 10f
+            val badgeTop = (cursorY - badgeHeight / 2f).coerceIn(marginTop, plotBottom - badgeHeight)
+            val badgeRight = badgeLeft + badgeTextWidth + (badgePaddingHorizontal * 2f)
+            val badgeBottom = badgeTop + badgeHeight
+
+            native.drawRoundRect(badgeLeft, badgeTop, badgeRight, badgeBottom, 8f, 8f, cursorBadgeBgPaint)
+            native.drawText(freqStr, badgeLeft + badgePaddingHorizontal, badgeTop + 28f, cursorBadgeTextPaint)
+
             // --- AXE X (Temps en secondes) ---
             native.drawLine(marginLeft, plotBottom, plotRight, plotBottom, tickPaint)
 
-            // Durée de la fenêtre temporelle affichée (50% overlap -> hop = fftSize/2)
             val hopSize = fftSize / 2.0
             val dt = hopSize / sampleRate
             val totalTimeSec = historySize * dt
@@ -177,22 +252,20 @@ fun SpectrogramCanvas(
                 val x = marginLeft + fraction * plotWidth
                 val tSec = -totalTimeSec * (1f - fraction)
 
-                // Ligne de tick
                 native.drawLine(x, plotBottom, x, plotBottom + 15f, tickPaint)
 
-                // Label de temps (ex: -3.5s, -2.8s, ..., 0.0s)
                 val label = String.format("%.1fs", tSec)
                 val labelWidth = textPaint.measureText(label)
                 val textX = (x - labelWidth / 2f).coerceIn(marginLeft, plotRight - labelWidth)
                 native.drawText(label, textX, plotBottom + 50f, textPaint)
             }
 
-            // Titre de l'axe X
+            // Titre Axe X
             val xTitle = "Temps (s)"
             val xTitleWidth = textPaint.measureText(xTitle)
             native.drawText(xTitle, marginLeft + (plotWidth - xTitleWidth) / 2f, h - 20f, textPaint)
 
-            // --- LÉGENDE dB FS (En haut à droite) ---
+            // --- LÉGENDE (Haut Droite) ---
             native.drawText(String.format("MAX: %.0f dBFS", maxDb), plotRight - 260f, marginTop + 35f, textPaint)
             native.drawText(String.format("MIN: %.0f dBFS", minDb), plotRight - 260f, marginTop + 75f, textPaint)
         }
