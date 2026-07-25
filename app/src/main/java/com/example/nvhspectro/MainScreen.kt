@@ -5,14 +5,20 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.foundation.Image
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import com.example.nvhspectro.ui.TelemetryGraph
+import com.example.nvhspectro.ui.TelemetryMetric
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -49,6 +55,9 @@ fun AppNavigation() {
 @Composable
 fun AppScreen(viewModel: MainViewModel) {
     val telemetry by viewModel.telemetryState.collectAsState()
+    val telemetryHistory by viewModel.telemetryHistory.collectAsState()
+    val selectedMetric by viewModel.selectedMetric.collectAsState()
+
     val fftHistory by viewModel.fftHistory.collectAsState()
     val isRecording by viewModel.isRecording.collectAsState()
     
@@ -61,11 +70,20 @@ fun AppScreen(viewModel: MainViewModel) {
     
     var showSettingsDialog by remember { mutableStateOf(false) }
     var showExportDialog by remember { mutableStateOf(false) }
+
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("NVH Spectro") },
+                title = { Text("NVH Spectro", fontWeight = FontWeight.Bold) },
                 actions = {
+                    Image(
+                        painter = painterResource(id = R.drawable.logo_vibratec),
+                        contentDescription = "Logo Vibratec",
+                        modifier = Modifier
+                            .height(28.dp)
+                            .padding(end = 8.dp),
+                        contentScale = ContentScale.Fit
+                    )
                     TextButton(onClick = { showSettingsDialog = true }) {
                         Text("Réglages", color = MaterialTheme.colorScheme.onPrimaryContainer)
                     }
@@ -100,11 +118,11 @@ fun AppScreen(viewModel: MainViewModel) {
                 .fillMaxSize()
                 .padding(paddingValues)
         ) {
-            // Zone 1: Spectrogramme
+            // Zone 1: Spectrogramme (55% hauteur)
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .weight(0.6f)
+                    .weight(0.55f)
                     .background(Color.Black),
                 contentAlignment = Alignment.Center
             ) {
@@ -123,34 +141,77 @@ fun AppScreen(viewModel: MainViewModel) {
                 }
             }
 
-            // Zone 2: Dashboard Capteurs / GPS
+            // Zone 2: Données Véhicule (45% hauteur)
             Card(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .weight(0.4f)
-                    .padding(8.dp),
-                elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
+                    .weight(0.45f)
+                    .padding(6.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+                elevation = CardDefaults.cardElevation(defaultElevation = 6.dp)
             ) {
                 Column(
-                    modifier = Modifier.padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(16.dp)
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(10.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    Text("Données Véhicule", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                    
+                    // En-tête : Titre + LED Signal GPS
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        DashboardItem("Vitesse", String.format("%.1f km/h", telemetry.speedKmh))
-                        DashboardItem("Altitude", String.format("%.0f m", telemetry.altitude))
+                        Text(
+                            text = "DONNÉES GPS",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            letterSpacing = 1.sp
+                        )
+
+                        // LED GPS
+                        GpsLedIndicator(status = telemetry.gpsStatus)
                     }
-                    
+
+                    // Encart des valeurs instantanées (Vitesse & Accélération)
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween
+                        horizontalArrangement = Arrangement.SpaceAround
                     ) {
-                        DashboardItem("Accélération", String.format("%.2f g", telemetry.accelerationG))
-                        DashboardItem("Position", if (telemetry.speedKmh >= 0) "Signal OK" else "GPS en attente")
+                        KpiItem("Vitesse", String.format("%.1f km/h", telemetry.speedKmh))
+                        KpiItem("Accélération", String.format("%.2f g", telemetry.accelerationG))
+                        KpiItem("Altitude", String.format("%.0f m", telemetry.altitude))
+                    }
+
+                    Divider(color = Color.Gray.copy(alpha = 0.3f), thickness = 1.dp)
+
+                    // Onglets Sélecteurs de métrique pour le graphique 2D
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceEvenly,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        TelemetryMetric.values().forEach { metric ->
+                            FilterChip(
+                                selected = (selectedMetric == metric),
+                                onClick = { viewModel.selectMetric(metric) },
+                                label = { Text(metric.label) }
+                            )
+                        }
+                    }
+
+                    // Zone Graphique 2D synchronisé
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .weight(1f)
+                            .background(Color.Black.copy(alpha = 0.7f))
+                    ) {
+                        TelemetryGraph(
+                            history = telemetryHistory,
+                            metric = selectedMetric,
+                            timeWindowSec = timeWindowSec
+                        )
                     }
                 }
             }
@@ -177,7 +238,6 @@ fun AppScreen(viewModel: MainViewModel) {
                 onDismiss = { showExportDialog = false },
                 telemetry = telemetry,
                 onExport = { pedalPercent, comments ->
-                    // Appel de la sauvegarde
                     showExportDialog = false
                     viewModel.exportData(pedalPercent, comments)
                 }
@@ -187,9 +247,31 @@ fun AppScreen(viewModel: MainViewModel) {
 }
 
 @Composable
-fun DashboardItem(label: String, value: String) {
-    Column {
-        Text(text = label, style = MaterialTheme.typography.bodySmall, color = Color.Gray)
+fun GpsLedIndicator(status: GpsStatus) {
+    val (ledColor, textLabel) = when (status) {
+        GpsStatus.GOOD -> Color(0xFF00E676) to "Signal OK"
+        GpsStatus.POOR -> Color(0xFFFF9100) to "Signal Médiocre"
+        GpsStatus.NONE -> Color(0xFFFF5252) to "Signal Perdu"
+    }
+
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp)
+    ) {
+        Text(text = "Signal GPS", style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Bold)
+        Box(
+            modifier = Modifier
+                .size(12.dp)
+                .background(color = ledColor, shape = CircleShape)
+        )
+        Text(text = textLabel, style = MaterialTheme.typography.labelSmall, color = Color.Gray)
+    }
+}
+
+@Composable
+fun KpiItem(label: String, value: String) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        Text(text = label, style = MaterialTheme.typography.labelMedium, color = Color.Gray)
         Text(text = value, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
     }
 }
