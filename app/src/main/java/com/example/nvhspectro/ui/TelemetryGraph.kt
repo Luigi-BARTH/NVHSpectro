@@ -20,7 +20,8 @@ import kotlin.math.min
 enum class TelemetryMetric(val label: String, val unit: String) {
     SPEED("Vitesse", "km/h"),
     ACCELERATION("Accélération", "g"),
-    ALTITUDE("Altitude", "m")
+    ALTITUDE("Altitude", "m"),
+    TTNR("TTNR", "dB")
 }
 
 @Composable
@@ -66,6 +67,7 @@ fun TelemetryGraph(
                 TelemetryMetric.SPEED -> data.speedKmh.toDouble()
                 TelemetryMetric.ACCELERATION -> data.accelerationG.toDouble()
                 TelemetryMetric.ALTITUDE -> data.altitude
+                TelemetryMetric.TTNR -> data.ttnrDb.toDouble()
             }
         }
 
@@ -114,6 +116,7 @@ fun TelemetryGraph(
                 TelemetryMetric.SPEED -> Color(0xFF00E676) // Vert fluo
                 TelemetryMetric.ACCELERATION -> Color(0xFFFF9100) // Orange vif
                 TelemetryMetric.ALTITUDE -> Color(0xFF00B0FF) // Bleu cyan
+                TelemetryMetric.TTNR -> Color(0xFFD500F9) // Violet / Magenta néon
             }
 
             drawPath(

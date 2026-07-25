@@ -151,9 +151,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     if (curTtnr.size > maxHist) curTtnr.removeLast()
                     _fftHistoryTTNR.value = curTtnr
 
-                    // Synchronisation stricte 1-to-1 de la Télémétrie sur le temps d'affichage audio
+                    // Synchronisation stricte 1-to-1 de la Télémétrie sur le temps d'affichage audio avec la valeur TTNR
+                    val ttnrMax = (ttnrSpectrum.maxOrNull() ?: 0.0).toFloat()
+                    val telemWithTtnr = _telemetryState.value.copy(ttnrDb = ttnrMax)
+
                     val curTelem = _telemetryHistory.value.toMutableList()
-                    curTelem.add(0, _telemetryState.value)
+                    curTelem.add(0, telemWithTtnr)
                     if (curTelem.size > maxHist) curTelem.removeLast()
                     _telemetryHistory.value = curTelem
                 }
