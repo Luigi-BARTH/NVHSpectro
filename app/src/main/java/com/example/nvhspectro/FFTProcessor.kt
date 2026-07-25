@@ -32,9 +32,6 @@ class FFTProcessor(val fftSize: Int = 2048) {
 
         // Calcul des magnitudes (échelle dBFS)
         val magnitudes = DoubleArray(fftSize / 2)
-        // Gain cohérent de la fenêtre de Hanning = 0.5
-        // Pour une sinusoïde d'amplitude 1.0, l'énergie se divise sur N/2.
-        // La normalisation standard pour retrouver l'amplitude est : mag / (N/2) * (1/0.5) = mag / (N/4)
         val normFactor = fftSize / 4.0 
 
         for (i in 0 until fftSize / 2) {
@@ -43,10 +40,77 @@ class FFTProcessor(val fftSize: Int = 2048) {
             val mag = sqrt(re * re + im * im)
             
             val magNormalized = mag / normFactor
-            // Plancher à 1e-6 pour éviter log10(0) = -Inf (-120 dBFS)
             magnitudes[i] = if (magNormalized > 1e-6) 20 * log10(magNormalized) else -120.0
         }
 
         return magnitudes
+    }
+
+    /**
+     * Calcule le spectre d'émergence TTNR (Tone-to-Noise Ratio) selon ECMA-74 / ISO 1996-2
+     * Méthode rigoureuse par bande critique de Terhardt et densité de puissance du bruit de masque.
+     * @param magnitudesDbFS : Tableau de magnitudes en dBFS
+     * @param sampleRate : Fréquence d'échantillonnage (ex: 44100 Hz)
+     * @return DoubleArray contenant les valeurs TTNR en dB d'émergence pour chaque raie [0..30 dB]
+     */
+    fun computeTTNR(magnitudesDbFS: DoubleArray, sampleRate: Int = 44100): DoubleArray {
+        val binCount = magnitudesDbFS.size
+        val df = sampleRate.toDouble() / fftSize
+        val ttnrSpectrum = DoubleArray(binCount)
+
+        // Convertir dBFS en puissance linéaire P = 10^(dBFS / 10)
+        val powerLinear = DoubleArray(binCount) { i ->
+            Math.pow(10.0, magnitudesDbFS[i] / 10.0)
+        }
+
+        for (i in 0 until binCount) {
+            val f = i * df
+            if (f < 40.0) {
+                ttnrSpectrum[i] = 0.0
+                continue
+            }
+
+            // 1. Largeur de bande critique (Bande de Bark selon Terhardt)
+            val fKhz = f / 1000.0
+            val criticalBandwidth = 25.0 + 75.0 * Math.pow(1.0 + 1.4 * fKhz * fKhz, 0.69)
+            val halfCbBins = (criticalBandwidth / (2.0 * df)).toInt().coerceAtLeast(3)
+
+            val minBin = (i - halfCbBins).coerceAtLeast(0)
+            val maxBin = (i + halfCbBins).coerceAtMost(binCount - 1)
+
+            // 2. Puissance du ton (Somme du pic i et de ses raies adjacentes de leakage)
+            var pTone = powerLinear[i]
+            if (i > 0) pTone += powerLinear[i - 1]
+            if (i < binCount - 1) pTone += powerLinear[i + 1]
+
+            // 3. Puissance du bruit de masque ambiant (excluant le pic et ses voisins immédiats)
+            var pNoiseSum = 0.0
+            var noiseCount = 0
+
+            for (j in minBin..maxBin) {
+                if (Math.abs(j - i) > 2) {
+                    pNoiseSum += powerLinear[j]
+                    noiseCount++
+                }
+            }
+
+            if (noiseCount == 0 || pNoiseSum <= 0.0) {
+                ttnrSpectrum[i] = 0.0
+                continue
+            }
+
+            val pNoiseDensityPerHz = pNoiseSum / (noiseCount * df)
+            val pNoiseTotalInCb = pNoiseDensityPerHz * criticalBandwidth
+
+            if (pNoiseTotalInCb > 0.0) {
+                val ratio = pTone / pNoiseTotalInCb
+                val ttnrDb = if (ratio > 1.0) 10.0 * log10(ratio) else 0.0
+                ttnrSpectrum[i] = ttnrDb.coerceIn(0.0, 30.0)
+            } else {
+                ttnrSpectrum[i] = 0.0
+            }
+        }
+
+        return ttnrSpectrum
     }
 }

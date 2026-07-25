@@ -54,7 +54,8 @@ fun SpectrogramCanvas(
     maxFreq: Int = 10000,
     fftSize: Int = 2048,
     sampleRate: Int = 44100,
-    historySize: Int = 150
+    historySize: Int = 150,
+    displayMode: DisplayMode = DisplayMode.ABSOLUTE
 ) {
     if (history.isEmpty()) {
         Canvas(modifier = modifier.fillMaxSize()) {}
@@ -69,7 +70,6 @@ fun SpectrogramCanvas(
     val bitmapWidth = historySize
     val bitmapHeight = displayedBinCount
 
-    // Position verticale du curseur (0.0f = Haut / MaxFreq, 1.0f = Bas / 0 Hz)
     var cursorYRatio by remember { mutableFloatStateOf(0.5f) }
 
     val bitmap by remember(bitmapWidth, bitmapHeight) {
@@ -79,7 +79,10 @@ fun SpectrogramCanvas(
         mutableStateOf(IntArray(bitmapWidth * bitmapHeight) { AndroidColor.BLACK })
     }
 
-    LaunchedEffect(history, minDb, maxDb) {
+    val effectiveMin = if (displayMode == DisplayMode.TTNR) 0.0 else minDb
+    val effectiveMax = if (displayMode == DisplayMode.TTNR) 20.0 else maxDb
+
+    LaunchedEffect(history, effectiveMin, effectiveMax, displayMode) {
         if (history.isNotEmpty()) {
             val latestFrame = history.first()
 
@@ -88,9 +91,9 @@ fun SpectrogramCanvas(
                 System.arraycopy(pixels, y * bitmapWidth + 1, pixels, y * bitmapWidth, bitmapWidth - 1)
 
                 val b = bitmapHeight - 1 - y
-                val magnitude = if (b < latestFrame.size) latestFrame[b] else minDb
+                val magnitude = if (b < latestFrame.size) latestFrame[b] else effectiveMin
                 
-                val normalized = ((magnitude - minDb) / (maxDb - minDb)).toFloat()
+                val normalized = ((magnitude - effectiveMin) / (effectiveMax - effectiveMin)).toFloat()
                 val colorInt = getJetColorInt(normalized)
                 
                 pixels[y * bitmapWidth + (bitmapWidth - 1)] = colorInt
@@ -266,8 +269,13 @@ fun SpectrogramCanvas(
             native.drawText(xTitle, marginLeft + (plotWidth - xTitleWidth) / 2f, h - 20f, textPaint)
 
             // --- LÉGENDE (Haut Droite) ---
-            native.drawText(String.format("MAX: %.0f dBFS", maxDb), plotRight - 260f, marginTop + 35f, textPaint)
-            native.drawText(String.format("MIN: %.0f dBFS", minDb), plotRight - 260f, marginTop + 75f, textPaint)
+            if (displayMode == DisplayMode.TTNR) {
+                native.drawText("MAX: +20 dB TTNR", plotRight - 300f, marginTop + 35f, textPaint)
+                native.drawText("MIN: 0 dB TTNR", plotRight - 300f, marginTop + 75f, textPaint)
+            } else {
+                native.drawText(String.format("MAX: %.0f dBFS", maxDb), plotRight - 260f, marginTop + 35f, textPaint)
+                native.drawText(String.format("MIN: %.0f dBFS", minDb), plotRight - 260f, marginTop + 75f, textPaint)
+            }
         }
     }
 }

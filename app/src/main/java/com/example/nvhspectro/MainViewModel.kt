@@ -16,6 +16,11 @@ import kotlinx.coroutines.launch
 import kotlin.math.max
 import kotlin.math.min
 
+enum class DisplayMode(val label: String) {
+    ABSOLUTE("Absolue (dBFS)"),
+    TTNR("TTNR (Emergence)")
+}
+
 class MainViewModel(application: Application) : AndroidViewModel(application) {
     
     private val audioRepository = AudioRepository()
@@ -26,8 +31,23 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _telemetryState = MutableStateFlow(TelemetryData())
     val telemetryState: StateFlow<TelemetryData> = _telemetryState.asStateFlow()
     
-    private val _fftHistory = MutableStateFlow<List<DoubleArray>>(emptyList())
-    val fftHistory: StateFlow<List<DoubleArray>> = _fftHistory.asStateFlow()
+    private val _displayMode = MutableStateFlow(DisplayMode.ABSOLUTE)
+    val displayMode: StateFlow<DisplayMode> = _displayMode.asStateFlow()
+
+    fun toggleDisplayMode() {
+        _displayMode.value = if (_displayMode.value == DisplayMode.ABSOLUTE) DisplayMode.TTNR else DisplayMode.ABSOLUTE
+    }
+
+    fun setDisplayMode(mode: DisplayMode) {
+        _displayMode.value = mode
+    }
+
+    private val _fftHistoryAbsolute = MutableStateFlow<List<DoubleArray>>(emptyList())
+    private val _fftHistoryTTNR = MutableStateFlow<List<DoubleArray>>(emptyList())
+
+    val fftHistory: StateFlow<List<DoubleArray>> = combine(_displayMode, _fftHistoryAbsolute, _fftHistoryTTNR) { mode, absList, ttnrList ->
+        if (mode == DisplayMode.TTNR) ttnrList else absList
+    }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
     
     private val _telemetryHistory = MutableStateFlow<List<TelemetryData>>(emptyList())
     val telemetryHistory: StateFlow<List<TelemetryData>> = _telemetryHistory.asStateFlow()
@@ -69,7 +89,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         if (_fftSize.value != newFftSize) {
             _fftSize.value = newFftSize
             fftProcessor = FFTProcessor(newFftSize)
-            _fftHistory.value = emptyList() // Reset history on size change
+            _fftHistoryAbsolute.value = emptyList()
+            _fftHistoryTTNR.value = emptyList()
             if (_isRecording.value) {
                 stopRecording()
                 startRecording()
@@ -117,16 +138,23 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             audioRepository.startAudioCapture(_fftSize.value).collect { audioBuffer ->
                 if (!_isFrozen.value) {
-                    // Traitement FFT
+                    // 1. Traitement FFT Absolu
                     val magnitudes = fftProcessor.processFFT(audioBuffer)
                     
-                    // Mettre à jour l'historique
-                    val currentList = _fftHistory.value.toMutableList()
-                    currentList.add(0, magnitudes) // Ajouter en tête
-                    if (currentList.size > historySize) {
-                        currentList.removeLast()
-                    }
-                    _fftHistory.value = currentList
+                    // 2. Traitement TTNR (Émergence tonale ECMA-74)
+                    val ttnrSpectrum = fftProcessor.computeTTNR(magnitudes, 44100)
+                    
+                    // Mettre à jour l'historique Absolu
+                    val curAbs = _fftHistoryAbsolute.value.toMutableList()
+                    curAbs.add(0, magnitudes)
+                    if (curAbs.size > historySize) curAbs.removeLast()
+                    _fftHistoryAbsolute.value = curAbs
+
+                    // Mettre à jour l'historique TTNR
+                    val curTtnr = _fftHistoryTTNR.value.toMutableList()
+                    curTtnr.add(0, ttnrSpectrum)
+                    if (curTtnr.size > historySize) curTtnr.removeLast()
+                    _fftHistoryTTNR.value = curTtnr
                 }
             }
         }
@@ -139,7 +167,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     
     fun exportData(pedalPercent: String, comments: String) {
         viewModelScope.launch {
-            val history = _fftHistory.value
+            val history = fftHistory.value
             val telemHistory = _telemetryHistory.value
             if (history.isEmpty()) return@launch
             
@@ -150,18 +178,19 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             val displayedBinCount = min(binCount, (maxF * binCount) / nyquistFreq)
             val bitmapHeight = displayedBinCount
             
-            // 1. Générer le bitmap brut du spectrogramme
+            // 1. Générer le bitmap brut du spectrogramme (Absolu ou TTNR selon mode actuel)
             val spectroBitmap = Bitmap.createBitmap(bitmapWidth, bitmapHeight, Bitmap.Config.ARGB_8888)
             val pixels = IntArray(bitmapWidth * bitmapHeight) { android.graphics.Color.BLACK }
-            val minDbVal = _minDb.value
-            val maxDbVal = _maxDb.value
+            val mode = _displayMode.value
+            val minVal = if (mode == DisplayMode.TTNR) 0.0 else _minDb.value
+            val maxVal = if (mode == DisplayMode.TTNR) 20.0 else _maxDb.value
             
             for (x in 0 until bitmapWidth) {
                 val frameData = history[x]
                 for (y in 0 until bitmapHeight) {
                     val b = bitmapHeight - 1 - y
-                    val magnitude = if (b < frameData.size) frameData[b] else minDbVal
-                    val normalized = ((magnitude - minDbVal) / (maxDbVal - minDbVal)).toFloat()
+                    val valMagnitude = if (b < frameData.size) frameData[b] else minVal
+                    val normalized = ((valMagnitude - minVal) / (maxVal - minVal)).toFloat()
                     pixels[y * bitmapWidth + (bitmapWidth - 1 - x)] = getJetColorInt(normalized)
                 }
             }
@@ -172,7 +201,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             val outHeight = 1850
             val outBitmap = Bitmap.createBitmap(outWidth, outHeight, Bitmap.Config.ARGB_8888)
             val canvas = Canvas(outBitmap)
-            canvas.drawColor(android.graphics.Color.parseColor("#121212")) // Fond sombre pro
+            canvas.drawColor(android.graphics.Color.parseColor("#121212"))
             
             val paintTitle = Paint().apply {
                 color = android.graphics.Color.WHITE
@@ -199,9 +228,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             
             // --- EN-TÊTE ---
             var curY = 60f
-            canvas.drawText("NVH SPECTRO - RAPPORT D'ANALYSE ROULAGE", 60f, curY, paintTitle)
+            canvas.drawText("NVH SPECTRO - RAPPORT (${mode.label.uppercase()})", 60f, curY, paintTitle)
             
-            // Dessin du logo Vibratec officiel en haut à droite
             try {
                 val logoBitmap = android.graphics.BitmapFactory.decodeResource(
                     getApplication<Application>().resources,
@@ -214,13 +242,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     canvas.drawBitmap(logoBitmap, null, logoRect, null)
                 }
             } catch (e: Exception) {
-                // Ignore if logo decoding fails
             }
 
             curY += 45f
             
             val telemetry = _telemetryState.value
-            val metadataStr = "Vitesse: ${String.format("%.1f", telemetry.speedKmh)} km/h | Pédale: ${if (pedalPercent.isBlank()) "-" else pedalPercent}% | Accél: ${String.format("%.2f", telemetry.accelerationG)}g | Altitude: ${String.format("%.0f", telemetry.altitude)}m"
+            val metadataStr = "Vitesse: ${String.format("%.1f", telemetry.speedKmh)} km/h | Pédale: ${if (pedalPercent.isBlank()) "-" else pedalPercent}% | Accél: ${String.format("%.2f", telemetry.accelerationG)}g | Mode: ${mode.label}"
             canvas.drawText(metadataStr, 60f, curY, paintText)
             curY += 40f
             
@@ -231,7 +258,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             
             curY += 20f
             
-            // Zone réservée pour l'alignement strict de tous les axes X (Abscisses)
             val marginLeft = 200f
             val marginRight = 60f
             val plotWidth = outWidth - marginLeft - marginRight
@@ -241,7 +267,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             val dstRect = android.graphics.RectF(marginLeft, curY, marginLeft + plotWidth, curY + spectroHeight)
             canvas.drawBitmap(spectroBitmap, null, dstRect, null)
             
-            // Axes Y Spectrogramme
             val actualMaxFreq = (displayedBinCount * nyquistFreq) / binCount
             canvas.drawLine(marginLeft, curY, marginLeft, curY + spectroHeight, paintLine)
             canvas.drawText("${actualMaxFreq} Hz", 40f, curY + 30f, paintAxis)
@@ -249,19 +274,17 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             
             curY += spectroHeight + 60f
             
-            // --- 2. LES 3 COURBES ÉPILÉES (Vitesse, Accélération, Altitude) ---
+            // --- 2. LES 3 COURBES ÉPILÉES ---
             val graphHeight = 220f
             val graphGap = 60f
             val timeWindow = _timeWindowSec.value
             
-            // Fonction locale pour tracer un graphe 2D
             fun drawStackedGraph(
                 title: String,
                 unit: String,
                 colorInt: Int,
                 values: List<Double>
             ) {
-                // Fond du graphe
                 val bgPaint = Paint().apply { color = android.graphics.Color.parseColor("#1E1E1E") }
                 canvas.drawRect(marginLeft, curY, marginLeft + plotWidth, curY + graphHeight, bgPaint)
                 canvas.drawLine(marginLeft, curY, marginLeft, curY + graphHeight, paintLine)
@@ -271,11 +294,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 val maxV = if (values.isNotEmpty()) values.maxOrNull() ?: 1.0 else 1.0
                 val rangeV = if (maxV > minV) maxV - minV else 1.0
                 
-                // Labels Y
                 canvas.drawText(String.format("%.1f %s", maxV, unit), 20f, curY + 30f, paintAxis)
                 canvas.drawText(String.format("%.1f %s", minV, unit), 20f, curY + graphHeight, paintAxis)
                 
-                // Titre Graphe
                 val titlePaint = Paint().apply {
                     color = colorInt
                     textSize = 26f
@@ -284,7 +305,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 }
                 canvas.drawText(title, marginLeft + 20f, curY + 35f, titlePaint)
                 
-                // Courbe
                 if (values.size > 1) {
                     val path = Path()
                     val pCount = values.size
@@ -306,23 +326,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     canvas.drawPath(path, linePaint)
                 }
                 
-                // Label Temps en bas du 3ème graphe
                 curY += graphHeight + graphGap
             }
             
-            // Graphe 1: Vitesse
             val speedValues = telemHistory.map { it.speedKmh.toDouble() }
             drawStackedGraph("Vitesse (km/h)", "km/h", android.graphics.Color.parseColor("#00E676"), speedValues)
             
-            // Graphe 2: Accélération
             val accelValues = telemHistory.map { it.accelerationG.toDouble() }
             drawStackedGraph("Accélération (g)", "g", android.graphics.Color.parseColor("#FF9100"), accelValues)
             
-            // Graphe 3: Altitude
             val altValues = telemHistory.map { it.altitude }
             drawStackedGraph("Altitude (m)", "m", android.graphics.Color.parseColor("#00B0FF"), altValues)
             
-            // Graduations de l'Axe X (Temps en secondes) en bas du dernier graphe
             val xBottomY = curY - graphGap + 35f
             val xSteps = 5
             for (i in 0..xSteps) {
@@ -333,7 +348,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             }
             canvas.drawText("Temps (s)", marginLeft + plotWidth / 2f - 40f, xBottomY + 35f, paintAxis)
             
-            // 3. Sauvegarder dans le MediaStore (Pictures/NVHSpectro)
             val resolver = getApplication<Application>().contentResolver
             val contentValues = ContentValues().apply {
                 put(MediaStore.Images.Media.DISPLAY_NAME, "NVHSpectro_${System.currentTimeMillis()}.png")

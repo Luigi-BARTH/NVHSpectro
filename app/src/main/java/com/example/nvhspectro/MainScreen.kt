@@ -66,6 +66,7 @@ fun AppScreen(viewModel: MainViewModel) {
     val fftSize by viewModel.fftSize.collectAsState()
     val maxFreq by viewModel.maxFreq.collectAsState()
     val timeWindowSec by viewModel.timeWindowSec.collectAsState()
+    val displayMode by viewModel.displayMode.collectAsState()
     val isFrozen by viewModel.isFrozen.collectAsState()
     
     var showSettingsDialog by remember { mutableStateOf(false) }
@@ -133,8 +134,29 @@ fun AppScreen(viewModel: MainViewModel) {
                     maxFreq = maxFreq,
                     fftSize = fftSize,
                     sampleRate = 44100,
-                    historySize = viewModel.historySize
+                    historySize = viewModel.historySize,
+                    displayMode = displayMode
                 )
+                
+                // Sélecteur de Mode (Absolue vs TTNR) en haut à gauche du Spectrogramme
+                Row(
+                    modifier = Modifier
+                        .align(Alignment.TopStart)
+                        .padding(start = 12.dp, top = 8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    DisplayMode.values().forEach { mode ->
+                        FilterChip(
+                            selected = (displayMode == mode),
+                            onClick = { viewModel.setDisplayMode(mode) },
+                            label = { Text(mode.label, fontSize = 11.sp, fontWeight = FontWeight.Bold) },
+                            colors = FilterChipDefaults.filterChipColors(
+                                selectedContainerColor = MaterialTheme.colorScheme.primary,
+                                selectedLabelColor = MaterialTheme.colorScheme.onPrimary
+                            )
+                        )
+                    }
+                }
                 
                 if (fftHistory.isEmpty()) {
                     Text(if (isRecording) "Analyse audio en cours..." else "Appuyez sur Lecture", color = Color.White)
