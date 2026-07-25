@@ -48,15 +48,15 @@ class FFTProcessor(val fftSize: Int = 2048) {
 
     /**
      * Calcule le spectre d'émergence TTNR (Tone-to-Noise Ratio) selon ECMA-74 / ISO 1996-2
-     * Méthode rigoureuse par bande critique de Terhardt et densité de puissance du bruit de masque.
+     * Avec Porte de Bruit Psychoacoustique (-70 dBFS) et Lissage Spectral Intelligent.
      * @param magnitudesDbFS : Tableau de magnitudes en dBFS
      * @param sampleRate : Fréquence d'échantillonnage (ex: 44100 Hz)
-     * @return DoubleArray contenant les valeurs TTNR en dB d'émergence pour chaque raie [0..30 dB]
+     * @return DoubleArray contenant les valeurs TTNR en dB d'émergence filtrées [0..30 dB]
      */
     fun computeTTNR(magnitudesDbFS: DoubleArray, sampleRate: Int = 44100): DoubleArray {
         val binCount = magnitudesDbFS.size
         val df = sampleRate.toDouble() / fftSize
-        val ttnrSpectrum = DoubleArray(binCount)
+        val rawTtnr = DoubleArray(binCount)
 
         // Convertir dBFS en puissance linéaire P = 10^(dBFS / 10)
         val powerLinear = DoubleArray(binCount) { i ->
@@ -65,8 +65,9 @@ class FFTProcessor(val fftSize: Int = 2048) {
 
         for (i in 0 until binCount) {
             val f = i * df
-            if (f < 40.0) {
-                ttnrSpectrum[i] = 0.0
+            // Porte de bruit : en dessous de -70 dBFS, ignorer les fluctuations statistiques de bruit
+            if (f < 50.0 || magnitudesDbFS[i] < -70.0) {
+                rawTtnr[i] = 0.0
                 continue
             }
 
@@ -95,7 +96,7 @@ class FFTProcessor(val fftSize: Int = 2048) {
             }
 
             if (noiseCount == 0 || pNoiseSum <= 0.0) {
-                ttnrSpectrum[i] = 0.0
+                rawTtnr[i] = 0.0
                 continue
             }
 
@@ -105,12 +106,21 @@ class FFTProcessor(val fftSize: Int = 2048) {
             if (pNoiseTotalInCb > 0.0) {
                 val ratio = pTone / pNoiseTotalInCb
                 val ttnrDb = if (ratio > 1.0) 10.0 * log10(ratio) else 0.0
-                ttnrSpectrum[i] = ttnrDb.coerceIn(0.0, 30.0)
+                rawTtnr[i] = ttnrDb.coerceIn(0.0, 30.0)
             } else {
-                ttnrSpectrum[i] = 0.0
+                rawTtnr[i] = 0.0
             }
         }
 
-        return ttnrSpectrum
+        // 4. Lissage Spectral Gaußien 3 raies pour éliminer les micro-pointes isolées d'une seule raie
+        val smoothedTtnr = DoubleArray(binCount)
+        for (i in 0 until binCount) {
+            val prev = if (i > 0) rawTtnr[i - 1] else rawTtnr[i]
+            val curr = rawTtnr[i]
+            val next = if (i < binCount - 1) rawTtnr[i + 1] else rawTtnr[i]
+            smoothedTtnr[i] = 0.2 * prev + 0.6 * curr + 0.2 * next
+        }
+
+        return smoothedTtnr
     }
 }

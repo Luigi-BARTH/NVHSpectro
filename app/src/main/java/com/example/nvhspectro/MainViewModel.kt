@@ -120,6 +120,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    private var previousTTNRSpectrum = DoubleArray(0)
+
     private fun startRecording() {
         _isRecording.value = true
         
@@ -139,8 +141,19 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     // Traitement FFT Absolu
                     val magnitudes = fftProcessor.processFFT(audioBuffer)
                     
-                    // Traitement TTNR (Émergence tonale ECMA-74)
-                    val ttnrSpectrum = fftProcessor.computeTTNR(magnitudes, 44100)
+                    // Traitement TTNR (Émergence tonale ECMA-74) avec Lissage Psychoacoustique
+                    val rawTtnr = fftProcessor.computeTTNR(magnitudes, 44100)
+                    
+                    // Persistence temporelle EMA (Alpha = 0.35) pour éliminer le bruit fluctuant aléatoire
+                    val ttnrSpectrum = DoubleArray(rawTtnr.size)
+                    if (previousTTNRSpectrum.size == rawTtnr.size) {
+                        for (i in rawTtnr.indices) {
+                            ttnrSpectrum[i] = 0.35 * rawTtnr[i] + 0.65 * previousTTNRSpectrum[i]
+                        }
+                    } else {
+                        System.arraycopy(rawTtnr, 0, ttnrSpectrum, 0, rawTtnr.size)
+                    }
+                    previousTTNRSpectrum = ttnrSpectrum
                     _latestTTNRSpectrum.value = ttnrSpectrum
                     
                     // Mettre à jour l'historique Absolu

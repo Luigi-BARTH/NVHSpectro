@@ -1,7 +1,6 @@
 package com.example.nvhspectro.ui
 
 import android.graphics.Paint
-import android.graphics.RectF
 import android.graphics.Typeface
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.fillMaxSize
@@ -40,16 +39,32 @@ fun TelemetryGraph(
     val textPaint = remember {
         Paint().apply {
             color = android.graphics.Color.WHITE
-            textSize = 26f
+            textSize = 24f
             typeface = Typeface.DEFAULT_BOLD
             isAntiAlias = true
         }
     }
 
-    val gridPaint = remember {
+    val tickTextPaint = remember {
         Paint().apply {
-            color = android.graphics.Color.DKGRAY
-            strokeWidth = 2f
+            color = android.graphics.Color.LTGRAY
+            textSize = 22f
+            isAntiAlias = true
+        }
+    }
+
+    val axisPaint = remember {
+        Paint().apply {
+            color = android.graphics.Color.GRAY
+            strokeWidth = 2.5f
+            isAntiAlias = true
+        }
+    }
+
+    val fineGridPaint = remember {
+        Paint().apply {
+            color = android.graphics.Color.parseColor("#334155")
+            strokeWidth = 1.5f
             isAntiAlias = true
         }
     }
@@ -86,14 +101,15 @@ fun TelemetryGraph(
         val marginLeft = 150f
         val marginRight = 40f
         val marginTop = 20f
-        val marginBottom = 40f
+        val marginBottom = 45f
 
         val plotWidth = w - marginLeft - marginRight
         val plotHeight = h - marginTop - marginBottom
 
         if (metric == TelemetryMetric.TTNR) {
             // =========================================================================
-            // MODE SPECTRE 2D TTNR : ABSCISSE = FRÉQUENCE (Hz), ORDONNÉE = ÉMERGENCE (dB)
+            // MODE SPECTRE 2D TTNR : GRILLE MULTI-REPÈRES HAUTE PRÉCISION ET LISIBILITÉ
+            // ABSCISSE = FRÉQUENCE (Hz), ORDONNÉE = ÉMERGENCE (dB)
             // =========================================================================
             val maxTtnrDb = 20.0
             val totalBins = if (ttnrSpectrum.isNotEmpty()) ttnrSpectrum.size else 1024
@@ -103,18 +119,41 @@ fun TelemetryGraph(
             drawIntoCanvas { canvas ->
                 val native = canvas.nativeCanvas
 
-                // Grille de fond
-                native.drawLine(marginLeft, marginTop, marginLeft, marginTop + plotHeight, gridPaint)
-                native.drawLine(marginLeft, marginTop + plotHeight, marginLeft + plotWidth, marginTop + plotHeight, gridPaint)
+                // 1. Grille Horizontale d'Émergence (0 dB, 5 dB, 10 dB, 15 dB, 20 dB)
+                val dbSteps = 4 // 0, 5, 10, 15, 20 dB
+                for (step in 0..dbSteps) {
+                    val dbVal = step * (maxTtnrDb / dbSteps)
+                    val y = (marginTop + plotHeight) - (step.toFloat() / dbSteps) * plotHeight
 
-                // Graduation Axe Y
-                native.drawText("+20 dB TTNR", 10f, marginTop + 25f, textPaint)
-                native.drawText("0 dB", 10f, marginTop + plotHeight, textPaint)
+                    // Ligne de grille fine
+                    native.drawLine(marginLeft, y, marginLeft + plotWidth, y, fineGridPaint)
 
-                // Graduation Axe X
-                native.drawText("0 Hz", marginLeft - 15f, marginTop + plotHeight + 32f, textPaint)
-                native.drawText("${maxFreq / 2} Hz", marginLeft + plotWidth / 2f - 40f, marginTop + plotHeight + 32f, textPaint)
-                native.drawText("${maxFreq} Hz", marginLeft + plotWidth - 80f, marginTop + plotHeight + 32f, textPaint)
+                    // Graduation Y
+                    val label = if (step == dbSteps) "+20 dB" else if (step == 0) "0 dB" else "+${dbVal.toInt()} dB"
+                    native.drawText(label, 15f, y + 8f, tickTextPaint)
+                }
+
+                // 2. Grille Verticale de Fréquence (5 paliers réguliers : 0 Hz, 25%, 50%, 75%, 100% maxFreq)
+                val freqSteps = 4
+                for (step in 0..freqSteps) {
+                    val fraction = step.toFloat() / freqSteps
+                    val x = marginLeft + fraction * plotWidth
+                    val freqVal = (fraction * maxFreq).toInt()
+
+                    // Ligne de grille verticale fine
+                    native.drawLine(x, marginTop, x, marginTop + plotHeight, fineGridPaint)
+
+                    // Graduation X
+                    val label = "${freqVal} Hz"
+                    val labelW = tickTextPaint.measureText(label)
+                    var labelX = x - (labelW / 2f)
+                    labelX = labelX.coerceIn(marginLeft, marginLeft + plotWidth - labelW)
+                    native.drawText(label, labelX, marginTop + plotHeight + 35f, tickTextPaint)
+                }
+
+                // Encadrement des Axes principaux
+                native.drawLine(marginLeft, marginTop, marginLeft, marginTop + plotHeight, axisPaint)
+                native.drawLine(marginLeft, marginTop + plotHeight, marginLeft + plotWidth, marginTop + plotHeight, axisPaint)
             }
 
             // Tracé de la courbe du spectre d'émergence 2D
@@ -150,7 +189,7 @@ fun TelemetryGraph(
                     style = Stroke(width = 3.5f)
                 )
 
-                // Curseur Automatique si émergence >= 3.0 dB
+                // Curseur Automatique Ultra-Stable si émergence >= 3.0 dB
                 if (maxEmergence >= 3.0 && maxEmergenceBin >= 0) {
                     val peakFreq = ((maxEmergenceBin.toDouble() / totalBins) * nyquist).toInt()
                     val peakFractionX = maxEmergenceBin.toFloat() / max(1, displayedBins - 1)
@@ -187,7 +226,7 @@ fun TelemetryGraph(
                         val badgeRight = badgeLeft + textWidth + 32f
                         val badgeBottom = badgeTop + 36f
 
-                        val rect = RectF(badgeLeft, badgeTop, badgeRight, badgeBottom)
+                        val rect = android.graphics.RectF(badgeLeft, badgeTop, badgeRight, badgeBottom)
                         native.drawRoundRect(rect, 12f, 12f, badgeBgPaint)
                         native.drawRoundRect(rect, 12f, 12f, badgeBorderPaint)
                         native.drawText(badgeText, badgeLeft + 16f, badgeTop + 26f, badgeTextPaint)
@@ -215,8 +254,8 @@ fun TelemetryGraph(
                 val native = canvas.nativeCanvas
 
                 // Grille de fond
-                native.drawLine(marginLeft, marginTop, marginLeft, marginTop + plotHeight, gridPaint)
-                native.drawLine(marginLeft, marginTop + plotHeight, marginLeft + plotWidth, marginTop + plotHeight, gridPaint)
+                native.drawLine(marginLeft, marginTop, marginLeft, marginTop + plotHeight, axisPaint)
+                native.drawLine(marginLeft, marginTop + plotHeight, marginLeft + plotWidth, marginTop + plotHeight, axisPaint)
 
                 // Labels Y
                 val maxStr = String.format("%.1f %s", maxVal, metric.unit)
