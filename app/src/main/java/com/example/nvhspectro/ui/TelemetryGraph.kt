@@ -28,6 +28,7 @@ fun TelemetryGraph(
     history: List<TelemetryData>,
     metric: TelemetryMetric,
     timeWindowSec: Double,
+    historySize: Int = 150,
     modifier: Modifier = Modifier
 ) {
     val textPaint = remember {
@@ -91,9 +92,12 @@ fun TelemetryGraph(
         if (values.size > 1) {
             val path = Path()
             val pointCount = values.size
+            val targetHistSize = max(historySize, pointCount)
 
             for (i in 0 until pointCount) {
-                val fractionX = (pointCount - 1 - i).toFloat() / max(1, pointCount - 1)
+                // Synchronisation temporelle 1-to-1 exacte avec le colormap
+                // i = 0 est le point le plus récent (à droite : marginLeft + plotWidth)
+                val fractionX = i.toFloat() / max(1, targetHistSize - 1)
                 val x = marginLeft + (1f - fractionX) * plotWidth
 
                 val normY = ((values[i] - minVal) / valRange).toFloat()

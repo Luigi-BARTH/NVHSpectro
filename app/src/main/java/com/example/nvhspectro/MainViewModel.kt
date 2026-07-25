@@ -91,6 +91,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             fftProcessor = FFTProcessor(newFftSize)
             _fftHistoryAbsolute.value = emptyList()
             _fftHistoryTTNR.value = emptyList()
+            _telemetryHistory.value = emptyList()
             if (_isRecording.value) {
                 stopRecording()
                 startRecording()
@@ -119,42 +120,42 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private fun startRecording() {
         _isRecording.value = true
         
-        // Lancer la télémétrie GPS et Capteurs
+        // 1. Mettre à jour l'état GPS instantané
         viewModelScope.launch {
             telemetryRepository.startTelemetry().collect { data ->
                 _telemetryState.value = data
-                if (!_isFrozen.value) {
-                    val currentList = _telemetryHistory.value.toMutableList()
-                    currentList.add(0, data)
-                    if (currentList.size > historySize) {
-                        currentList.removeLast()
-                    }
-                    _telemetryHistory.value = currentList
-                }
             }
         }
         
-        // Lancer la capture Audio et FFT
+        // 2. Lancer la capture Audio et Synchronisation 1-to-1 du Spectrogramme ET de la Télémétrie
         viewModelScope.launch {
             audioRepository.startAudioCapture(_fftSize.value).collect { audioBuffer ->
                 if (!_isFrozen.value) {
-                    // 1. Traitement FFT Absolu
+                    val maxHist = historySize
+
+                    // Traitement FFT Absolu
                     val magnitudes = fftProcessor.processFFT(audioBuffer)
                     
-                    // 2. Traitement TTNR (Émergence tonale ECMA-74)
+                    // Traitement TTNR (Émergence tonale ECMA-74)
                     val ttnrSpectrum = fftProcessor.computeTTNR(magnitudes, 44100)
                     
                     // Mettre à jour l'historique Absolu
                     val curAbs = _fftHistoryAbsolute.value.toMutableList()
                     curAbs.add(0, magnitudes)
-                    if (curAbs.size > historySize) curAbs.removeLast()
+                    if (curAbs.size > maxHist) curAbs.removeLast()
                     _fftHistoryAbsolute.value = curAbs
 
                     // Mettre à jour l'historique TTNR
                     val curTtnr = _fftHistoryTTNR.value.toMutableList()
                     curTtnr.add(0, ttnrSpectrum)
-                    if (curTtnr.size > historySize) curTtnr.removeLast()
+                    if (curTtnr.size > maxHist) curTtnr.removeLast()
                     _fftHistoryTTNR.value = curTtnr
+
+                    // Synchronisation stricte 1-to-1 de la Télémétrie sur le temps d'affichage audio
+                    val curTelem = _telemetryHistory.value.toMutableList()
+                    curTelem.add(0, _telemetryState.value)
+                    if (curTelem.size > maxHist) curTelem.removeLast()
+                    _telemetryHistory.value = curTelem
                 }
             }
         }
@@ -316,7 +317,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     }
                     
                     for (i in 0 until pCount) {
-                        val fractionX = (pCount - 1 - i).toFloat() / max(1, pCount - 1)
+                        val fractionX = (pCount - 1 - i).toFloat() / max(1, historySize - 1)
                         val x = marginLeft + (1f - fractionX) * plotWidth
                         val normY = ((values[i] - minV) / rangeV).toFloat()
                         val y = (curY + graphHeight) - (normY * graphHeight)

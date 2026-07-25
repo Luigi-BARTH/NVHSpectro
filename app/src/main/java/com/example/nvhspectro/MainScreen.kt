@@ -222,7 +222,7 @@ fun AppScreen(viewModel: MainViewModel) {
                         }
                     }
 
-                    // Zone Graphique 2D synchronisé
+                    // Zone Graphique 2D synchronisé 1-to-1
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -232,7 +232,8 @@ fun AppScreen(viewModel: MainViewModel) {
                         TelemetryGraph(
                             history = telemetryHistory,
                             metric = selectedMetric,
-                            timeWindowSec = timeWindowSec
+                            timeWindowSec = timeWindowSec,
+                            historySize = viewModel.historySize
                         )
                     }
                 }
