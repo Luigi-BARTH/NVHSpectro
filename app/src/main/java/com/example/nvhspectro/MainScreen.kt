@@ -11,12 +11,14 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.foundation.Image
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.nvhspectro.ui.InfoDialog
 import com.example.nvhspectro.ui.TelemetryGraph
 import com.example.nvhspectro.ui.TelemetryMetric
 
@@ -70,6 +72,7 @@ fun AppScreen(viewModel: MainViewModel) {
     val displayMode by viewModel.displayMode.collectAsState()
     val isFrozen by viewModel.isFrozen.collectAsState()
     
+    var showInfoDialog by remember { mutableStateOf(false) }
     var showSettingsDialog by remember { mutableStateOf(false) }
     var showExportDialog by remember { mutableStateOf(false) }
 
@@ -83,9 +86,12 @@ fun AppScreen(viewModel: MainViewModel) {
                         contentDescription = "Logo Vibratec",
                         modifier = Modifier
                             .height(28.dp)
-                            .padding(end = 8.dp),
+                            .padding(end = 6.dp),
                         contentScale = ContentScale.Fit
                     )
+                    TextButton(onClick = { showInfoDialog = true }) {
+                        Text("Informations", fontStyle = FontStyle.Italic, color = MaterialTheme.colorScheme.onPrimaryContainer)
+                    }
                     TextButton(onClick = { showSettingsDialog = true }) {
                         Text("Réglages", color = MaterialTheme.colorScheme.onPrimaryContainer)
                     }
@@ -243,6 +249,12 @@ fun AppScreen(viewModel: MainViewModel) {
             }
         }
         
+        if (showInfoDialog) {
+            InfoDialog(
+                onDismiss = { showInfoDialog = false }
+            )
+        }
+
         if (showSettingsDialog) {
             com.example.nvhspectro.ui.SettingsDialog(
                 onDismiss = { showSettingsDialog = false },
