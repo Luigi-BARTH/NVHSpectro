@@ -56,7 +56,7 @@ fun InfoDialog(
                         InfoDetailRow("👤 Auteur", "Louis BARTHELEMY")
                         InfoDetailRow("🏢 Société", "VIBRATEAM [Vibratec (Everenn Group)]")
                         InfoDetailRow("📱 Application", "NVH Spectro")
-                        InfoDetailRow("🏷️ Version", "v4.0.0 (Build 2026)")
+                        InfoDetailRow("🏷️ Version", "v5.0.0 (Build 2026)")
                         InfoDetailRow("✉️ Contact", "www.louis.barthelemy@vibrateam.fr")
                     }
                 }

@@ -3,7 +3,7 @@
 **Auteur** : Louis BARTHELEMY  
 **Société** : VIBRATEAM [Vibratec (Everenn Group)]  
 **Application** : NVH Spectro  
-**Version** : v4.0.0 (Build 2026)  
+**Version** : v5.0.0 (Build 2026)  
 **Contact** : www.louis.barthelemy@vibrateam.fr  
 
 ---
@@ -39,8 +39,8 @@
 1. **Layer UI (Jetpack Compose & Custom Canvas 2D)** :
    - `SpectrogramCanvas.kt` : Canvas 2D haute performance affichant le spectrogramme déroulant (Waterfall) en échelle Absolue (dBFS) ou Émergence Tonale (TTNR dB).
    - `TelemetryGraph.kt` : Graphique 2D déroulant synchronisé (Vitesse, Accélération, Altitude) et Mode Spectre 2D TTNR (Émergence vs Fréquence).
-   - `SettingsDialog.kt` : Dialogue de configuration avec tableau récapitulatif des indicateurs DSP en temps réel.
-   - `InfoDialog.kt` : Fiche auteur, société VIBRATEAM Vibratec et détails métier.
+   - `SettingsDialog.kt` : Dialogue de configuration avec sélecteur de taille N sur 2 lignes et tableau récapitulatif des indicateurs DSP en temps réel.
+   - `InfoDialog.kt` : Fiche auteur (Louis BARTHELEMY), société VIBRATEAM Vibratec et détails métier.
    - `ExportDialog.kt` : Générateur de rapport PNG complet.
 
 2. **Layer Core & DSP** :
@@ -50,9 +50,18 @@
 
 ---
 
-## 2. Méthodes de Calcul DSP & Traitement du Signal
+## 2. Protection du Code & Nommage d'APK (V5.0.0)
 
-### 2.1. Acquisition & Fenêtrage Hanning Compensé
+Dans la version **V5.0.0**, les mécanismes de protection de propriété intellectuelle et de nommage personnalisé ont été activés :
+
+- 🔐 **Offusquation R8 / ProGuard** : Activation de `isMinifyEnabled = true` et `isShrinkResources = true` sur le build de Release. Le code bytecode Dalvik est automatiquement compressé et les noms de classes/méthodes sont offusqués sous forme de symboles incompréhensibles (`a`, `b`, `x1`).
+- 📦 **Nommage personnalisé d'APK** : Génération directe sous le nom explicite `APP_NVH_Spectro_v5.apk` (ou `app-debug.apk` en mode développement direct).
+
+---
+
+## 3. Méthodes de Calcul DSP & Traitement du Signal
+
+### 3.1. Acquisition & Fenêtrage Hanning Compensé
 - **Fréquence d'échantillonnage** : $F_s = 44\,100\text{ Hz}$.
 - **Taille de fenêtre FFT** : $N \in \{512, 1024, 2048, 4096\}$ points (par défaut $N = 2048$).
 - **Recouvrement (Overlap)** : Fixe à **50%** ($N/2$ échantillons), garantissant la propriété **COLA** (*Constant Overlap-Add*) :
@@ -64,7 +73,7 @@
 
 ---
 
-### 2.2. Calcul du TTNR (Tone-to-Noise Ratio - ECMA-74 / ISO 1996-2)
+### 3.2. Calcul du TTNR (Tone-to-Noise Ratio - ECMA-74 / ISO 1996-2)
 
 Le TTNR mesure l'émergence d'une raie tonale émergente (sifflement d'engrenage, moteur électrique, turbo) par rapport au niveau du bruit de masque ambiant dans sa bande critique.
 
@@ -81,7 +90,7 @@ $$\text{TTNR}_{\text{raw}}(i) = 10 \cdot \log_{10}\left(\frac{P_{\text{tone}}}{P
 
 ---
 
-### 2.3. Triade de Filtrage Psychoacoustique Smart (Anti-Parasite)
+### 3.3. Triade de Filtrage Psychoacoustique Smart (Anti-Parasite)
 
 Pour éliminer les fluctuations statistiques du bruit de roulement en basse fréquence ($0 - 1200\text{ Hz}$), une triade de filtrage est appliquée :
 
@@ -97,7 +106,7 @@ Pour éliminer les fluctuations statistiques du bruit de roulement en basse fré
 
 ---
 
-## 3. Matrice des Indicateurs DSP (Réglages)
+## 4. Matrice des Indicateurs DSP (Réglages)
 
 | Taille $N$ | Recouvrement | Pas Temporel ($\Delta t$) | Bloc Temporel ($1/\Delta f$) | Cadence (FPS) | Résolution ($\Delta f$) |
 | :--- | :--- | :--- | :--- | :--- | :--- |
@@ -108,7 +117,7 @@ Pour éliminer les fluctuations statistiques du bruit de roulement en basse fré
 
 ---
 
-## 4. Fonctionnalités Complètes de l'Application
+## 5. Fonctionnalités Complètes de l'Application
 
 - 🎨 **Spectrogramme Bimodal** : Bascule 1-clic entre Niveau Absolu (dBFS) et Émergence Tonale TTNR (dB).
 - 📈 **Graphiques 2D Synchronisés 1-to-1** : Vitesse ($km/h$), Accélération ($g$), Altitude ($m$), et Spectre 2D TTNR ($dB$ vs $Hz$).
@@ -118,7 +127,7 @@ Pour éliminer les fluctuations statistiques du bruit de roulement en basse fré
 
 ---
 
-## 5. Procédure de Maintenance de la Documentation
+## 6. Procédure de Maintenance de la Documentation
 
 > [!IMPORTANT]
 > **Règle d'Agent / Procédure de Commit :**
