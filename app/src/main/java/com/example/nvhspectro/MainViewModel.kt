@@ -43,7 +43,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private val _fftHistoryAbsolute = MutableStateFlow<List<DoubleArray>>(emptyList())
+    val fftHistoryAbsolute: StateFlow<List<DoubleArray>> = _fftHistoryAbsolute.asStateFlow()
+
     private val _fftHistoryTTNR = MutableStateFlow<List<DoubleArray>>(emptyList())
+    val fftHistoryTTNR: StateFlow<List<DoubleArray>> = _fftHistoryTTNR.asStateFlow()
 
     val fftHistory: StateFlow<List<DoubleArray>> = combine(_displayMode, _fftHistoryAbsolute, _fftHistoryTTNR) { mode, absList, ttnrList ->
         if (mode == DisplayMode.TTNR) ttnrList else absList
@@ -83,6 +86,22 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             val dt = (_fftSize.value / 2.0) / 44100.0
             return (_timeWindowSec.value / dt).toInt().coerceAtLeast(10)
         }
+
+    // Paramètres du détecteur d'émergence automatique
+    private val _isDetectorEnabled = MutableStateFlow(true)
+    val isDetectorEnabled: StateFlow<Boolean> = _isDetectorEnabled.asStateFlow()
+
+    private val _emergenceThresholdDb = MutableStateFlow(4.0)
+    val emergenceThresholdDb: StateFlow<Double> = _emergenceThresholdDb.asStateFlow()
+
+    private val _magnitudeGateDbFS = MutableStateFlow(-65.0)
+    val magnitudeGateDbFS: StateFlow<Double> = _magnitudeGateDbFS.asStateFlow()
+
+    fun updateDetectorSettings(enabled: Boolean, thresholdDb: Double, magnitudeGateDb: Double) {
+        _isDetectorEnabled.value = enabled
+        _emergenceThresholdDb.value = thresholdDb
+        _magnitudeGateDbFS.value = magnitudeGateDb
+    }
 
     fun updateSettings(newMinDb: Double, newMaxDb: Double, newFftSize: Int, newMaxFreq: Int, newTimeWindow: Double) {
         _minDb.value = newMinDb

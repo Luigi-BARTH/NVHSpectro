@@ -61,6 +61,11 @@ fun AppScreen(viewModel: MainViewModel) {
     val selectedMetric by viewModel.selectedMetric.collectAsState()
 
     val fftHistory by viewModel.fftHistory.collectAsState()
+    val fftHistoryAbsolute by viewModel.fftHistoryAbsolute.collectAsState()
+    val fftHistoryTTNR by viewModel.fftHistoryTTNR.collectAsState()
+    val isDetectorEnabled by viewModel.isDetectorEnabled.collectAsState()
+    val emergenceThresholdDb by viewModel.emergenceThresholdDb.collectAsState()
+    val magnitudeGateDbFS by viewModel.magnitudeGateDbFS.collectAsState()
     val latestTTNRSpectrum by viewModel.latestTTNRSpectrum.collectAsState()
     val isRecording by viewModel.isRecording.collectAsState()
     
@@ -136,13 +141,18 @@ fun AppScreen(viewModel: MainViewModel) {
             ) {
                 SpectrogramCanvas(
                     history = fftHistory,
+                    absHistory = fftHistoryAbsolute,
+                    ttnrHistory = fftHistoryTTNR,
                     minDb = minDb,
                     maxDb = maxDb,
                     maxFreq = maxFreq,
                     fftSize = fftSize,
                     sampleRate = 44100,
                     historySize = viewModel.historySize,
-                    displayMode = displayMode
+                    displayMode = displayMode,
+                    isDetectorEnabled = isDetectorEnabled,
+                    emergenceThresholdDb = emergenceThresholdDb,
+                    magnitudeGateDbFS = magnitudeGateDbFS
                 )
                 
                 // Sélecteur de Mode (Absolue vs TTNR) en haut à gauche du Spectrogramme
@@ -267,7 +277,19 @@ fun AppScreen(viewModel: MainViewModel) {
                 maxFreq = maxFreq,
                 onMaxFreqChange = { viewModel.updateSettings(minDb, maxDb, fftSize, it, timeWindowSec) },
                 timeWindowSec = timeWindowSec,
-                onTimeWindowChange = { viewModel.updateSettings(minDb, maxDb, fftSize, maxFreq, it) }
+                onTimeWindowChange = { viewModel.updateSettings(minDb, maxDb, fftSize, maxFreq, it) },
+                isDetectorEnabled = isDetectorEnabled,
+                onDetectorEnabledChange = { enabled ->
+                    viewModel.updateDetectorSettings(enabled, emergenceThresholdDb, magnitudeGateDbFS)
+                },
+                emergenceThresholdDb = emergenceThresholdDb,
+                onEmergenceThresholdChange = { threshold ->
+                    viewModel.updateDetectorSettings(isDetectorEnabled, threshold, magnitudeGateDbFS)
+                },
+                magnitudeGateDbFS = magnitudeGateDbFS,
+                onMagnitudeGateChange = { gate ->
+                    viewModel.updateDetectorSettings(isDetectorEnabled, emergenceThresholdDb, gate)
+                }
             )
         }
         

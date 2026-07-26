@@ -3,7 +3,9 @@ package com.example.nvhspectro.ui
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -25,7 +27,13 @@ fun SettingsDialog(
     maxFreq: Int,
     onMaxFreqChange: (Int) -> Unit,
     timeWindowSec: Double,
-    onTimeWindowChange: (Double) -> Unit
+    onTimeWindowChange: (Double) -> Unit,
+    isDetectorEnabled: Boolean = true,
+    onDetectorEnabledChange: (Boolean) -> Unit = {},
+    emergenceThresholdDb: Double = 4.0,
+    onEmergenceThresholdChange: (Double) -> Unit = {},
+    magnitudeGateDbFS: Double = -65.0,
+    onMagnitudeGateChange: (Double) -> Unit = {}
 ) {
     val sampleRate = 44100.0
     val stepSize = fftSize / 2.0
@@ -34,14 +42,77 @@ fun SettingsDialog(
     val fps = sampleRate / stepSize
     val dfHz = sampleRate / fftSize
 
+    val scrollState = rememberScrollState()
+
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Paramètres NVH & DSP", fontWeight = FontWeight.Bold) },
+        title = { Text("Paramètres NVH & DSP (v6.0.0)", fontWeight = FontWeight.Bold) },
         text = {
             Column(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(scrollState),
                 verticalArrangement = Arrangement.spacedBy(14.dp)
             ) {
+                // SECTION 1: DÉTECTEUR DE BALISES CLIGNOTANTES (POINTS 1 ET 4)
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .border(1.dp, Color(0xFFFFC107).copy(alpha = 0.6f), RoundedCornerShape(8.dp)),
+                    colors = CardDefaults.cardColors(containerColor = Color(0xFF1C1914)),
+                    shape = RoundedCornerShape(8.dp)
+                ) {
+                    Column(
+                        modifier = Modifier.padding(10.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "⚡ DÉTECTEUR DE BALISES CLIGNOTANTES",
+                                color = Color(0xFFFFC107),
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 12.sp
+                            )
+                            Switch(
+                                checked = isDetectorEnabled,
+                                onCheckedChange = onDetectorEnabledChange
+                            )
+                        }
+
+                        if (isDetectorEnabled) {
+                            Column {
+                                Text(
+                                    text = "Seuil d'Émergence (TTNR) : ${String.format("%.1f", emergenceThresholdDb)} dB",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = Color.White
+                                )
+                                Slider(
+                                    value = emergenceThresholdDb.toFloat(),
+                                    onValueChange = { onEmergenceThresholdChange(it.toDouble()) },
+                                    valueRange = 2f..10f
+                                )
+                            }
+
+                            Column {
+                                Text(
+                                    text = "Porte d'Amplitude Absolue : ${magnitudeGateDbFS.toInt()} dBFS",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = Color.White
+                                )
+                                Slider(
+                                    value = magnitudeGateDbFS.toFloat(),
+                                    onValueChange = { onMagnitudeGateChange(it.toDouble()) },
+                                    valueRange = -90f..-30f
+                                )
+                            }
+                        }
+                    }
+                }
+
                 // Temps d'affichage
                 Column {
                     Text("Temps d'affichage : ${String.format("%.1f", timeWindowSec)} s", style = MaterialTheme.typography.bodyMedium)

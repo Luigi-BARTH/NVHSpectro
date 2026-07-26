@@ -5,6 +5,7 @@ import android.graphics.Color as AndroidColor
 import android.graphics.DashPathEffect
 import android.graphics.Paint
 import android.graphics.Typeface
+import androidx.compose.animation.core.*
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -21,6 +22,16 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import kotlin.math.max
 import kotlin.math.min
+
+/**
+ * Data class représentant un pic d'émergence tonale détecté sur la trame courante
+ */
+data class EmergencePeak(
+    val binIndex: Int,
+    val freqHz: Int,
+    val ttnrDb: Double,
+    val absDbFS: Double
+)
 
 /**
  * Retourne un Int ARGB basé sur la colormap "Jet"
@@ -48,6 +59,8 @@ fun getJetColorInt(v: Float): Int {
 @Composable
 fun SpectrogramCanvas(
     history: List<DoubleArray>,
+    absHistory: List<DoubleArray> = emptyList(),
+    ttnrHistory: List<DoubleArray> = emptyList(),
     modifier: Modifier = Modifier,
     minDb: Double = -120.0,
     maxDb: Double = 0.0,
@@ -55,7 +68,10 @@ fun SpectrogramCanvas(
     fftSize: Int = 2048,
     sampleRate: Int = 44100,
     historySize: Int = 150,
-    displayMode: DisplayMode = DisplayMode.ABSOLUTE
+    displayMode: DisplayMode = DisplayMode.ABSOLUTE,
+    isDetectorEnabled: Boolean = true,
+    emergenceThresholdDb: Double = 4.0,
+    magnitudeGateDbFS: Double = -65.0
 ) {
     if (history.isEmpty()) {
         Canvas(modifier = modifier.fillMaxSize()) {}
@@ -71,6 +87,18 @@ fun SpectrogramCanvas(
     val bitmapHeight = displayedBinCount
 
     var cursorYRatio by remember { mutableFloatStateOf(0.5f) }
+
+    // Animation de clignotement / pulsation pour le détecteur d'émergence
+    val infiniteTransition = rememberInfiniteTransition(label = "beaconPulse")
+    val pulsePhase by infiniteTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(600, easing = LinearEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "pulsePhase"
+    )
 
     val bitmap by remember(bitmapWidth, bitmapHeight) {
         mutableStateOf(Bitmap.createBitmap(bitmapWidth, bitmapHeight, Bitmap.Config.ARGB_8888))
@@ -150,6 +178,77 @@ fun SpectrogramCanvas(
         }
     }
 
+    // Peintures pour les Balises d'Émergence
+    val beaconPulsePaint = remember {
+        Paint().apply {
+            style = Paint.Style.STROKE
+            strokeWidth = 4f
+            isAntiAlias = true
+        }
+    }
+
+    val beaconCenterPaint = remember {
+        Paint().apply {
+            style = Paint.Style.FILL
+            isAntiAlias = true
+        }
+    }
+
+    val beaconBadgeBgPaint = remember {
+        Paint().apply {
+            color = AndroidColor.parseColor("#EE1A1A2E") // Sombre translucide
+            style = Paint.Style.FILL
+            isAntiAlias = true
+        }
+    }
+
+    val beaconBadgeTextPaint = remember {
+        Paint().apply {
+            textSize = 26f
+            typeface = Typeface.DEFAULT_BOLD
+            isAntiAlias = true
+        }
+    }
+
+    // --- DÉTECTION DES PICS D'ÉMERGENCE SUR LA TRAME COURANTE ---
+    val detectedPeaks = remember(absHistory, ttnrHistory, isDetectorEnabled, emergenceThresholdDb, magnitudeGateDbFS, displayedBinCount) {
+        val peaksList = mutableListOf<EmergencePeak>()
+        if (isDetectorEnabled && absHistory.isNotEmpty() && ttnrHistory.isNotEmpty()) {
+            val latestAbs = absHistory.first()
+            val latestTtnr = ttnrHistory.first()
+            val limitBins = minOf(displayedBinCount, latestAbs.size, latestTtnr.size)
+
+            for (i in 1 until limitBins - 1) {
+                val ttnr = latestTtnr[i]
+                val absVal = latestAbs[i]
+
+                // POINT 1 & POINT 4:
+                // 1) Émergence TTNR >= Seuil (ex: 4.0 dB)
+                // 2) Magnitude Absolue >= Porte (ex: -65.0 dBFS)
+                if (ttnr >= emergenceThresholdDb && absVal >= magnitudeGateDbFS) {
+                    // Vérification Pic Local (Sommet)
+                    if (ttnr >= latestTtnr[i - 1] && ttnr >= latestTtnr[i + 1]) {
+                        val freqHz = (i * nyquistFreq) / totalBinCount
+                        peaksList.add(EmergencePeak(i, freqHz, ttnr, absVal))
+                    }
+                }
+            }
+
+            // Non-Maximum Suppression : Trier par TTNR décroissant et éliminer les doublons proches (< 6 bins)
+            peaksList.sortByDescending { it.ttnrDb }
+            val filteredPeaks = mutableListOf<EmergencePeak>()
+            for (p in peaksList) {
+                if (filteredPeaks.none { Math.abs(it.binIndex - p.binIndex) < 6 }) {
+                    filteredPeaks.add(p)
+                }
+                if (filteredPeaks.size >= 5) break // Retenir au maximum les 5 plus fortes émergences
+            }
+            filteredPeaks
+        } else {
+            emptyList()
+        }
+    }
+
     Canvas(
         modifier = modifier
             .fillMaxSize()
@@ -221,14 +320,41 @@ fun SpectrogramCanvas(
                 native.drawText("${f} Hz", 10f, textY, textPaint)
             }
 
+            // --- DESSIN DES BALISES CLIGNOTANTES D'ÉMERGENCE (Option A: LED Pulsante BORD DROIT pure sans texte) ---
+            if (isDetectorEnabled && detectedPeaks.isNotEmpty()) {
+                for (peak in detectedPeaks) {
+                    val yBinRatio = 1f - (peak.binIndex.toFloat() / displayedBinCount)
+                    val peakY = marginTop + (yBinRatio * plotHeight).coerceIn(0f, plotHeight)
+
+                    // Couleur : Rouge Néon si TTNR >= 6.0 dB, Jaune/Ambre si TTNR < 6.0 dB
+                    val isCritical = peak.ttnrDb >= 6.0
+                    val baseColor = if (isCritical) AndroidColor.parseColor("#FF1744") else AndroidColor.parseColor("#FFC107")
+                    
+                    // Rayon et Alpha pulsants
+                    val pulseRadius = 10f + pulsePhase * 14f
+                    val alphaPulse = (230 - pulsePhase * 150).toInt().coerceIn(40, 255)
+                    
+                    beaconPulsePaint.color = baseColor
+                    beaconPulsePaint.alpha = alphaPulse
+                    beaconCenterPaint.color = baseColor
+                    beaconCenterPaint.alpha = 255
+
+                    // Position X : bord droit extrême
+                    val beaconX = plotRight - 6f
+
+                    // 1. Halo pulsant extérieur (LED Aura)
+                    native.drawCircle(beaconX, peakY, pulseRadius, beaconPulsePaint)
+                    // 2. Centre lumineux solide
+                    native.drawCircle(beaconX, peakY, 6f, beaconCenterPaint)
+                }
+            }
+
             // --- CURSEUR EN FRÉQUENCE DISCRET ---
             val cursorY = marginTop + cursorYRatio * plotHeight
-            val selectedFreqHz = ((1f - cursorYRatio) * actualMaxFreq).toInt() // Entier sans décimale !
+            val selectedFreqHz = ((1f - cursorYRatio) * actualMaxFreq).toInt()
 
-            // Ligne pointillée horizontale sur toute la largeur de l'image
             native.drawLine(marginLeft, cursorY, plotRight, cursorY, cursorLinePaint)
 
-            // Badge de fréquence interactif attaché au curseur sur l'axe Y
             val freqStr = "$selectedFreqHz Hz"
             val badgeTextWidth = cursorBadgeTextPaint.measureText(freqStr)
             val badgePaddingHorizontal = 12f

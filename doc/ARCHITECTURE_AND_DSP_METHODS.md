@@ -3,7 +3,7 @@
 **Auteur** : Louis BARTHELEMY  
 **Société** : VIBRATEAM [Vibratec (Everenn Group)]  
 **Application** : NVH Spectro  
-**Version** : v5.0.0 (Build 2026)  
+**Version** : v6.0.0 (Build 2026)  
 **Contact** : www.louis.barthelemy@vibrateam.fr  
 
 ---
@@ -37,9 +37,9 @@
 ```
 
 1. **Layer UI (Jetpack Compose & Custom Canvas 2D)** :
-   - `SpectrogramCanvas.kt` : Canvas 2D haute performance affichant le spectrogramme déroulant (Waterfall) en échelle Absolue (dBFS) ou Émergence Tonale (TTNR dB).
+   - `SpectrogramCanvas.kt` : Canvas 2D haute performance affichant le spectrogramme déroulant (Waterfall) avec balises clignotantes pulsantes d'émergence tonale (v6.0.0).
    - `TelemetryGraph.kt` : Graphique 2D déroulant synchronisé (Vitesse, Accélération, Altitude) et Mode Spectre 2D TTNR (Émergence vs Fréquence).
-   - `SettingsDialog.kt` : Dialogue de configuration avec sélecteur de taille N sur 2 lignes et tableau récapitulatif des indicateurs DSP en temps réel.
+   - `SettingsDialog.kt` : Dialogue de configuration avec sélecteur de taille N, tableau récapitulatif DSP et curseurs du Détecteur d'Émergence.
    - `InfoDialog.kt` : Fiche auteur (Louis BARTHELEMY), société VIBRATEAM Vibratec et détails métier.
    - `ExportDialog.kt` : Générateur de rapport PNG complet.
 
@@ -50,12 +50,12 @@
 
 ---
 
-## 2. Protection du Code & Nommage d'APK (V5.0.0)
+## 2. Protection du Code & Nommage d'APK (V6.0.0)
 
-Dans la version **V5.0.0**, les mécanismes de protection de propriété intellectuelle et de nommage personnalisé ont été activés :
+Dans la version **V6.0.0**, les mécanismes de protection de propriété intellectuelle et de nommage personnalisé sont actifs :
 
-- 🔐 **Offusquation R8 / ProGuard** : Activation de `isMinifyEnabled = true` et `isShrinkResources = true` sur le build de Release. Le code bytecode Dalvik est automatiquement compressé et les noms de classes/méthodes sont offusqués sous forme de symboles incompréhensibles (`a`, `b`, `x1`).
-- 📦 **Nommage personnalisé d'APK** : Génération directe sous le nom explicite `APP_NVH_Spectro_v5.apk` (ou `app-debug.apk` en mode développement direct).
+- 🔐 **Offusquation R8 / ProGuard** : Activation de `isMinifyEnabled = true` et `isShrinkResources = true` sur le build de Release.
+- 📦 **Nommage personnalisé d'APK** : Génération directe sous le nom explicite `APP_NVH_Spectro_v6.apk` (ou `app-debug.apk` en mode développement direct).
 
 ---
 
