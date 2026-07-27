@@ -231,15 +231,27 @@ fun SpectrogramCanvas(
             for (i in startBin until endBin) {
                 val ttnr = latestTtnr[i]
                 val absVal = latestAbs[i]
+                val freqHz = (i * nyquistFreq).toDouble() / totalBinCount
 
-                // POINT 1 & POINT 4:
-                // 1) Émergence TTNR >= Seuil (ex: 4.0 dB)
-                // 2) Magnitude Absolue >= Porte (ex: -65.0 dBFS)
-                if (ttnr >= emergenceThresholdDb && absVal >= magnitudeGateDbFS) {
-                    // Vérification Pic Local (Sommet)
-                    if (ttnr >= latestTtnr[i - 1] && ttnr >= latestTtnr[i + 1]) {
-                        val freqHz = (i * nyquistFreq) / totalBinCount
-                        peaksList.add(EmergencePeak(i, freqHz, ttnr, absVal))
+                val reqThreshold = when {
+                    freqHz < 1500.0 -> maxOf(emergenceThresholdDb, 4.2)
+                    freqHz < 4000.0 -> maxOf(emergenceThresholdDb, 3.2)
+                    else -> emergenceThresholdDb
+                }
+
+                val reqGate = when {
+                    freqHz < 500.0 -> maxOf(magnitudeGateDbFS, -75.0)
+                    freqHz < 3000.0 -> maxOf(magnitudeGateDbFS, -85.0)
+                    else -> magnitudeGateDbFS
+                }
+
+                val prevTtnr = latestTtnr[i - 1]
+                val nextTtnr = latestTtnr[i + 1]
+
+                // Validation Pic Structuré NVH (anti-spikes isolés de 1 pixel)
+                if (ttnr >= reqThreshold && absVal >= reqGate && (prevTtnr > 0.5 || nextTtnr > 0.5)) {
+                    if (ttnr >= prevTtnr && ttnr >= nextTtnr) {
+                        peaksList.add(EmergencePeak(i, freqHz.toInt(), ttnr, absVal))
                     }
                 }
             }

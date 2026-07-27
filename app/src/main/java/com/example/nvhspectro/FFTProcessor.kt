@@ -71,8 +71,16 @@ class FFTProcessor(val fftSize: Int = 2048) {
 
         for (i in 0 until binCount) {
             val f = i * df
-            // Filtre Passe-Haut NVH 30 Hz + Porte d'amplitude à -92 dBFS pour capter les harmoniques faibles audibles
-            if (f < 30.0 || magnitudesDbFS[i] < -92.0) {
+
+            // Porte d'amplitude profilée selon la fréquence (Isosonie ISO 226 NVH)
+            val minMagnitudeGate = when {
+                f < 500.0 -> -75.0
+                f < 3000.0 -> -85.0
+                else -> -92.0
+            }
+
+            // Filtre Passe-Haut NVH 30 Hz + Porte d'amplitude profilée
+            if (f < 30.0 || magnitudesDbFS[i] < minMagnitudeGate) {
                 rawTtnr[i] = 0.0
                 continue
             }
@@ -120,23 +128,48 @@ class FFTProcessor(val fftSize: Int = 2048) {
             val localNoiseFloorDbFS = 10.0 * log10(pNoiseDensityPerHz * df)
             val localEmergenceDb = (magnitudesDbFS[i] - localNoiseFloorDbFS).coerceAtLeast(0.0)
 
-            // Hybridation NVH Psychoacoustique : Si la raie émerge de >= 2.5 dB au-dessus du bruit de fond local,
-            // l'oreille humaine l'entend nettement. On valorise cette émergence même si le bruit total intégré CB est fort.
-            val hybridTtnr = if (localEmergenceDb >= 2.5) {
+            // Seuil d'émergence adaptatif en fréquence (anti-turbulences basse fréquence)
+            val minEmergenceRequired = when {
+                f < 1500.0 -> 4.2
+                f < 4000.0 -> 3.2
+                else -> 2.5
+            }
+
+            // Hybridation NVH Psychoacoustique : Valorise les raies émergentes audibles selon la zone fréquentielle
+            val hybridTtnr = if (localEmergenceDb >= minEmergenceRequired) {
                 maxOf(ttnrCbDb, localEmergenceDb - 1.5)
             } else {
-                ttnrCbDb
+                if (ttnrCbDb >= minEmergenceRequired) ttnrCbDb else 0.0
             }
 
             rawTtnr[i] = hybridTtnr.coerceIn(0.0, 30.0)
         }
 
-        // 4. Lissage Spectral Doux (90% pic actuel) pour préserver la hauteur exacte des raies fines sans l'atténuer
+        // 4. Filtre de Prominence Spectrale (Anti-Spike 1-Pixel)
+        // Élimine les spikes isolés de 1 pixel produits par la variance statistique du bruit de ventilateur
+        val filteredTtnr = DoubleArray(binCount)
+        for (i in 0 until binCount) {
+            val valCurr = rawTtnr[i]
+            if (valCurr <= 0.0) continue
+
+            val prevVal = if (i > 0) rawTtnr[i - 1] else 0.0
+            val nextVal = if (i < binCount - 1) rawTtnr[i + 1] else 0.0
+
+            // Un pic physique a des épaules d'énergie (prevVal ou nextVal non-nuls)
+            val hasStructure = (prevVal >= 0.20 * valCurr || nextVal >= 0.20 * valCurr)
+            if (hasStructure) {
+                filteredTtnr[i] = valCurr
+            } else {
+                filteredTtnr[i] = 0.0 // Annuler le spike 1-pixel isolé
+            }
+        }
+
+        // 5. Lissage Spectral Doux (90% pic actuel) pour préserver la hauteur exacte des raies fines sans l'atténuer
         val smoothedTtnr = DoubleArray(binCount)
         for (i in 0 until binCount) {
-            val prev = if (i > 0) rawTtnr[i - 1] else rawTtnr[i]
-            val curr = rawTtnr[i]
-            val next = if (i < binCount - 1) rawTtnr[i + 1] else rawTtnr[i]
+            val prev = if (i > 0) filteredTtnr[i - 1] else filteredTtnr[i]
+            val curr = filteredTtnr[i]
+            val next = if (i < binCount - 1) filteredTtnr[i + 1] else filteredTtnr[i]
             smoothedTtnr[i] = 0.05 * prev + 0.90 * curr + 0.05 * next
         }
 
