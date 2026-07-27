@@ -117,12 +117,12 @@ class FFTProcessor(val fftSize: Int = 2048) {
                 val minBin = (i - halfCbBins).coerceAtLeast(0)
                 val maxBin = (i + halfCbBins).coerceAtMost(binCount - 1)
 
-                // Puissance du ton (Somme du pic i et de ses 4 raies adjacentes de leakage/fenêtrage Hann +-2 bins)
-                var pTone = powerLinear[i]
-                if (i > 0) pTone += powerLinear[i - 1]
-                if (i > 1) pTone += powerLinear[i - 2]
-                if (i < binCount - 1) pTone += powerLinear[i + 1]
-                if (i < binCount - 2) pTone += powerLinear[i + 2]
+                // Puissance brute du ton (Somme du pic i et de ses 4 raies adjacentes de leakage +-2 bins)
+                var pToneGross = powerLinear[i]
+                if (i > 0) pToneGross += powerLinear[i - 1]
+                if (i > 1) pToneGross += powerLinear[i - 2]
+                if (i < binCount - 1) pToneGross += powerLinear[i + 1]
+                if (i < binCount - 2) pToneGross += powerLinear[i + 2]
 
                 // Puissance du bruit ambiant local
                 var pNoiseSum = 0.0
@@ -140,31 +140,36 @@ class FFTProcessor(val fftSize: Int = 2048) {
                 }
 
                 val pNoiseDensityPerHz = pNoiseSum / (noiseCount * df)
-                val pNoiseTotalInCb = pNoiseDensityPerHz * criticalBandwidth
+                val pNoiseIn5Bins = 5.0 * pNoiseDensityPerHz * df
 
-                // TTNR selon bande critique ECMA-74
-                val ratioCb = if (pNoiseTotalInCb > 0.0) pTone / pNoiseTotalInCb else 0.0
+                // Puissance NETTE du ton (Soustraction du bruit de fond sous le dôme)
+                val pToneNet = maxOf(0.0, pToneGross - pNoiseIn5Bins)
+
+                // Largeur de bande critique stabilisée (borne min 150 Hz pour éviter l'explosion du ratio en BF)
+                val cbwEffective = maxOf(criticalBandwidth, 150.0)
+                val pNoiseTotalInCb = pNoiseDensityPerHz * cbwEffective
+
+                // TTNR ECMA-74 sur puissance nette du ton
+                val ratioCb = if (pNoiseTotalInCb > 0.0) pToneNet / pNoiseTotalInCb else 0.0
                 val ttnrCbDb = if (ratioCb > 1.0) 10.0 * log10(ratioCb) else 0.0
 
-                // Émergence Spectrale Locale ISO 1996-2 (Delta L par rapport au bruit de fond local immédiat)
+                // Émergence Spectrale Locale ISO 1996-2
                 val localNoiseFloorDbFS = 10.0 * log10(pNoiseDensityPerHz * df)
                 val localEmergenceDb = (magnitudesDbFS[i] - localNoiseFloorDbFS).coerceAtLeast(0.0)
 
                 // Seuil d'émergence adaptatif en fréquence (anti-turbulences & double verrou HF)
                 val minEmergenceRequired = when {
-                    f < 1500.0 -> 4.2
-                    f < 4000.0 -> 3.5
-                    else -> 4.0 // 4.0 dB en HF: élimine les petites fluctuations, valide la MLI/sifflement émergent
+                    f < 1500.0 -> 4.5
+                    f < 4000.0 -> 3.8
+                    else -> 4.0
                 }
 
-                // Hybridation NVH Psychoacoustique : Valorise les raies émergentes audibles selon la zone fréquentielle
-                val hybridTtnr = if (localEmergenceDb >= minEmergenceRequired) {
-                    maxOf(ttnrCbDb, localEmergenceDb - 1.5)
+                // Hybridation NVH Psychoacoustique : Seuls les tons avec puissance nette positive ET émergence nette sont retenus
+                val finalPeakTtnr = if (pToneNet > 0.0 && localEmergenceDb >= minEmergenceRequired) {
+                    maxOf(ttnrCbDb, localEmergenceDb - 1.5).coerceIn(0.0, 30.0)
                 } else {
-                    if (ttnrCbDb >= minEmergenceRequired) ttnrCbDb else 0.0
+                    0.0
                 }
-
-                val finalPeakTtnr = hybridTtnr.coerceIn(0.0, 30.0)
 
                 if (finalPeakTtnr >= 1.0) {
                     rawTtnr[i] = finalPeakTtnr
