@@ -249,9 +249,9 @@ class FFTProcessor(val fftSize: Int = 2048) {
             System.arraycopy(smoothedTtnr, 0, finalTtnr, 0, binCount)
         }
 
-        // Rotation des trames dans l'historique
+        // Rotation des trames candidates dans l'historique (smoothedTtnr) pour éviter tout blocage d'extinction
         historyFrame2 = historyFrame1?.clone()
-        historyFrame1 = finalTtnr.clone()
+        historyFrame1 = smoothedTtnr.clone()
 
         return finalTtnr
     }
