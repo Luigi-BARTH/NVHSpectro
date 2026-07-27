@@ -91,10 +91,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _isDetectorEnabled = MutableStateFlow(true)
     val isDetectorEnabled: StateFlow<Boolean> = _isDetectorEnabled.asStateFlow()
 
-    private val _emergenceThresholdDb = MutableStateFlow(4.0)
+    private val _emergenceThresholdDb = MutableStateFlow(3.0)
     val emergenceThresholdDb: StateFlow<Double> = _emergenceThresholdDb.asStateFlow()
 
-    private val _magnitudeGateDbFS = MutableStateFlow(-65.0)
+    private val _magnitudeGateDbFS = MutableStateFlow(-80.0)
     val magnitudeGateDbFS: StateFlow<Double> = _magnitudeGateDbFS.asStateFlow()
 
     fun updateDetectorSettings(enabled: Boolean, thresholdDb: Double, magnitudeGateDb: Double) {
@@ -163,11 +163,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     // Traitement TTNR (Émergence tonale ECMA-74) avec Lissage Psychoacoustique
                     val rawTtnr = fftProcessor.computeTTNR(magnitudes, 44100)
                     
-                    // Persistence temporelle EMA (Alpha = 0.35) pour éliminer le bruit fluctuant aléatoire
+                    // Persistence temporelle EMA NVH v7 (Alpha = 0.75) : réactivité rapide en rampe de régime
                     val ttnrSpectrum = DoubleArray(rawTtnr.size)
                     if (previousTTNRSpectrum.size == rawTtnr.size) {
                         for (i in rawTtnr.indices) {
-                            ttnrSpectrum[i] = 0.35 * rawTtnr[i] + 0.65 * previousTTNRSpectrum[i]
+                            ttnrSpectrum[i] = 0.75 * rawTtnr[i] + 0.25 * previousTTNRSpectrum[i]
                         }
                     } else {
                         System.arraycopy(rawTtnr, 0, ttnrSpectrum, 0, rawTtnr.size)

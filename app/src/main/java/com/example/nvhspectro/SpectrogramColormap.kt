@@ -70,8 +70,8 @@ fun SpectrogramCanvas(
     historySize: Int = 150,
     displayMode: DisplayMode = DisplayMode.ABSOLUTE,
     isDetectorEnabled: Boolean = true,
-    emergenceThresholdDb: Double = 4.0,
-    magnitudeGateDbFS: Double = -65.0
+    emergenceThresholdDb: Double = 3.0,
+    magnitudeGateDbFS: Double = -80.0
 ) {
     if (history.isEmpty()) {
         Canvas(modifier = modifier.fillMaxSize()) {}
@@ -234,14 +234,14 @@ fun SpectrogramCanvas(
                 }
             }
 
-            // Non-Maximum Suppression : Trier par TTNR décroissant et éliminer les doublons proches (< 6 bins)
+            // Non-Maximum Suppression NVH v7 : Trier par TTNR décroissant et éliminer les doublons proches (< 4 bins)
             peaksList.sortByDescending { it.ttnrDb }
             val filteredPeaks = mutableListOf<EmergencePeak>()
             for (p in peaksList) {
-                if (filteredPeaks.none { Math.abs(it.binIndex - p.binIndex) < 6 }) {
+                if (filteredPeaks.none { Math.abs(it.binIndex - p.binIndex) < 4 }) {
                     filteredPeaks.add(p)
                 }
-                if (filteredPeaks.size >= 5) break // Retenir au maximum les 5 plus fortes émergences
+                if (filteredPeaks.size >= 12) break // Retenir au maximum les 12 plus fortes émergences (ordres + sifflements HF)
             }
             filteredPeaks
         } else {

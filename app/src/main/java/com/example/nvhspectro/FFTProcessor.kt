@@ -47,8 +47,8 @@ class FFTProcessor(val fftSize: Int = 2048) {
     }
 
     /**
-     * Calcule le spectre d'émergence TTNR (Tone-to-Noise Ratio) selon ECMA-74 / ISO 1996-2
-     * Avec Porte de Bruit Psychoacoustique (-70 dBFS) et Lissage Spectral Intelligent.
+     * Calcule le spectre d'émergence TTNR (Tone-to-Noise Ratio) selon ECMA-74 / ISO 1996-2 (Optimisé NVH Véhicule v7.0.0)
+     * Avec Porte de Bruit Psychoacoustique (-85 dBFS), Bande de Masquage Locale Adaptative et Lissage Dynamique.
      * @param magnitudesDbFS : Tableau de magnitudes en dBFS
      * @param sampleRate : Fréquence d'échantillonnage (ex: 44100 Hz)
      * @return DoubleArray contenant les valeurs TTNR en dB d'émergence filtrées [0..30 dB]
@@ -65,31 +65,38 @@ class FFTProcessor(val fftSize: Int = 2048) {
 
         for (i in 0 until binCount) {
             val f = i * df
-            // Porte de bruit : en dessous de -70 dBFS, ignorer les fluctuations statistiques de bruit
-            if (f < 50.0 || magnitudesDbFS[i] < -70.0) {
+            // Porte de bruit NVH v7 : autoriser les ordres combustion à partir de 15 Hz (H1.5 = 37.5 Hz @ 1500 RPM)
+            // et porte d'amplitude à -85 dBFS pour capter le sifflement réducteur/gear whine HF à bas niveau.
+            if (f < 15.0 || magnitudesDbFS[i] < -85.0) {
                 rawTtnr[i] = 0.0
                 continue
             }
 
-            // 1. Largeur de bande critique (Bande de Bark selon Terhardt)
+            // 1. Largeur de bande critique (Formule de Terhardt) & Masquage Local Adaptatif NVH (max 400 Hz)
             val fKhz = f / 1000.0
             val criticalBandwidth = 25.0 + 75.0 * Math.pow(1.0 + 1.4 * fKhz * fKhz, 0.69)
-            val halfCbBins = (criticalBandwidth / (2.0 * df)).toInt().coerceAtLeast(3)
+            
+            // Pour l'estimation de la densité de bruit locale en environnement automobile non-plat,
+            // on borne la fenêtre de calcul du bruit à max 400 Hz pour éviter d'intégrer le bruit broadband HF.
+            val localMaskingBandwidth = minOf(criticalBandwidth, 400.0)
+            val halfCbBins = (localMaskingBandwidth / (2.0 * df)).toInt().coerceAtLeast(4)
 
             val minBin = (i - halfCbBins).coerceAtLeast(0)
             val maxBin = (i + halfCbBins).coerceAtMost(binCount - 1)
 
-            // 2. Puissance du ton (Somme du pic i et de ses raies adjacentes de leakage)
+            // 2. Puissance du ton (Somme du pic i et de ses 4 raies adjacentes de leakage/fenêtrage Hann +-2 bins)
             var pTone = powerLinear[i]
             if (i > 0) pTone += powerLinear[i - 1]
+            if (i > 1) pTone += powerLinear[i - 2]
             if (i < binCount - 1) pTone += powerLinear[i + 1]
+            if (i < binCount - 2) pTone += powerLinear[i + 2]
 
-            // 3. Puissance du bruit de masque ambiant (excluant le pic et ses voisins immédiats)
+            // 3. Puissance du bruit de masque ambiant (excluant le pic et ses voisins immédiats +-3 bins)
             var pNoiseSum = 0.0
             var noiseCount = 0
 
             for (j in minBin..maxBin) {
-                if (Math.abs(j - i) > 2) {
+                if (Math.abs(j - i) > 3) {
                     pNoiseSum += powerLinear[j]
                     noiseCount++
                 }
@@ -112,13 +119,13 @@ class FFTProcessor(val fftSize: Int = 2048) {
             }
         }
 
-        // 4. Lissage Spectral Gaußien 3 raies pour éliminer les micro-pointes isolées d'une seule raie
+        // 4. Lissage Spectral Doux (90% pic actuel) pour préserver la hauteur exacte des raies fines sans l'atténuer
         val smoothedTtnr = DoubleArray(binCount)
         for (i in 0 until binCount) {
             val prev = if (i > 0) rawTtnr[i - 1] else rawTtnr[i]
             val curr = rawTtnr[i]
             val next = if (i < binCount - 1) rawTtnr[i + 1] else rawTtnr[i]
-            smoothedTtnr[i] = 0.2 * prev + 0.6 * curr + 0.2 * next
+            smoothedTtnr[i] = 0.05 * prev + 0.90 * curr + 0.05 * next
         }
 
         return smoothedTtnr

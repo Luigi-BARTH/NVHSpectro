@@ -30,9 +30,9 @@ fun SettingsDialog(
     onTimeWindowChange: (Double) -> Unit,
     isDetectorEnabled: Boolean = true,
     onDetectorEnabledChange: (Boolean) -> Unit = {},
-    emergenceThresholdDb: Double = 4.0,
+    emergenceThresholdDb: Double = 3.0,
     onEmergenceThresholdChange: (Double) -> Unit = {},
-    magnitudeGateDbFS: Double = -65.0,
+    magnitudeGateDbFS: Double = -80.0,
     onMagnitudeGateChange: (Double) -> Unit = {}
 ) {
     val sampleRate = 44100.0
@@ -46,7 +46,7 @@ fun SettingsDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Paramètres NVH & DSP (v6.0.0)", fontWeight = FontWeight.Bold) },
+        title = { Text("Paramètres NVH & DSP (v7.0.0)", fontWeight = FontWeight.Bold) },
         text = {
             Column(
                 modifier = Modifier

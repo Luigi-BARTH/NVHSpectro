@@ -3,7 +3,7 @@
 **Auteur** : Louis BARTHELEMY  
 **Société** : VIBRATEAM [Vibratec (Everenn Group)]  
 **Application** : NVH Spectro  
-**Version** : v6.0.0 (Build 2026)  
+**Version** : v7.0.0 (Build 2026)  
 **Contact** : www.louis.barthelemy@vibrateam.fr  
 
 ---
@@ -37,7 +37,7 @@
 ```
 
 1. **Layer UI (Jetpack Compose & Custom Canvas 2D)** :
-   - `SpectrogramCanvas.kt` : Canvas 2D haute performance affichant le spectrogramme déroulant (Waterfall) avec balises clignotantes pulsantes d'émergence tonale (v6.0.0).
+   - `SpectrogramCanvas.kt` : Canvas 2D haute performance affichant le spectrogramme déroulant (Waterfall) avec balises clignotantes pulsantes d'émergence tonale (v7.0.0).
    - `TelemetryGraph.kt` : Graphique 2D déroulant synchronisé (Vitesse, Accélération, Altitude) et Mode Spectre 2D TTNR (Émergence vs Fréquence).
    - `SettingsDialog.kt` : Dialogue de configuration avec sélecteur de taille N, tableau récapitulatif DSP et curseurs du Détecteur d'Émergence.
    - `InfoDialog.kt` : Fiche auteur (Louis BARTHELEMY), société VIBRATEAM Vibratec et détails métier.
@@ -45,21 +45,21 @@
 
 2. **Layer Core & DSP** :
    - `AudioRepository.kt` : Continuous 16-bit PCM Audio Capture à 44.1 kHz avec buffer glissant et recouvrement fixe à 50% (Constant Overlap-Add Hanning).
-   - `FFTProcessor.kt` : Calcul FFT via `JTransforms` et algorithme d'émergence tonale ECMA-74 / ISO 1996-2.
+   - `FFTProcessor.kt` : Calcul FFT via `JTransforms` et algorithme d'émergence tonale ECMA-74 / ISO 1996-2 optimisé NVH Véhicule v7.0.0.
    - `TelemetryRepository.kt` : Détection GPS haute fréquence et calcul d'accélération différentielle ($g$).
 
 ---
 
-## 2. Protection du Code & Nommage d'APK (V6.0.0)
+## 2. Protection du Code & Nommage d'APK (V7.0.0)
 
-Dans la version **V6.0.0**, les mécanismes de protection de propriété intellectuelle et de nommage personnalisé sont actifs :
+Dans la version **V7.0.0**, les mécanismes de protection de propriété intellectuelle et de nommage personnalisé sont actifs :
 
 - 🔐 **Offusquation R8 / ProGuard** : Activation de `isMinifyEnabled = true` et `isShrinkResources = true` sur le build de Release.
-- 📦 **Nommage personnalisé d'APK** : Génération directe sous le nom explicite `APP_NVH_Spectro_v6.apk` (ou `app-debug.apk` en mode développement direct).
+- 📦 **Nommage personnalisé d'APK** : Génération directe sous le nom explicite `APP_NVH_Spectro_v7.apk` (ou `app-debug.apk` en mode développement direct).
 
 ---
 
-## 3. Méthodes de Calcul DSP & Traitement du Signal
+## 3. Méthodes de Calcul DSP & Traitement du Signal (Spécificités NVH V7.0.0)
 
 ### 3.1. Acquisition & Fenêtrage Hanning Compensé
 - **Fréquence d'échantillonnage** : $F_s = 44\,100\text{ Hz}$.
@@ -73,36 +73,35 @@ Dans la version **V6.0.0**, les mécanismes de protection de propriété intelle
 
 ---
 
-### 3.2. Calcul du TTNR (Tone-to-Noise Ratio - ECMA-74 / ISO 1996-2)
+### 3.2. Calcul du TTNR (Tone-to-Noise Ratio - ISO 1996-2 / ECMA-74 NVH Adaptatif v7)
 
-Le TTNR mesure l'émergence d'une raie tonale émergente (sifflement d'engrenage, moteur électrique, turbo) par rapport au niveau du bruit de masque ambiant dans sa bande critique.
+Le TTNR mesure l'émergence d'une raie tonale émergente (ordres moteur combustion H1.5, sifflement d'engrenage réducteur VE, turbo, hachage inverter) par rapport au niveau du bruit de masque ambiant.
 
-#### Step 1 : Largeur de bande critique (Formule de Terhardt)
+#### Step 1 : Masquage Local Adaptatif NVH & Bande Critique
 Pour chaque raie fréquentielle $f = i \cdot \Delta f$ (avec $\Delta f = F_s / N$) :
-$$\Delta f_c(f) = 25.0 + 75.0 \cdot \left(1 + 1.4 \cdot \left(\frac{f}{1000}\right)^2\right)^{0.69} \quad [\text{Hz}]$$
+- Bande critique de Terhardt :
+  $$\Delta f_c(f) = 25.0 + 75.0 \cdot \left(1 + 1.4 \cdot \left(\frac{f}{1000}\right)^2\right)^{0.69} \quad [\text{Hz}]$$
+- **Fenêtre de Masquage Local Bornée à $400\text{ Hz}$** : En milieu véhicule non-plat (bruit aérodynamique broadband HF), l'estimation de la densité de bruit locale est bornée à $\min(\Delta f_c, 400\text{ Hz})$ pour éviter d'intégrer le bruit de vent hors-bande qui étouffe le TTNR à $4\text{ kHz}+$.
 
 #### Step 2 : Puissance du ton vs Puissance du bruit de masque
-- **Puissance de la raie tonale ($P_{\text{tone}}$)** : Somme du pic $i$ et de ses raies adjacentes de leakage ($i-1, i+1$).
-- **Puissance du bruit de masque ($P_{\text{noise}}$)** : Moyenne de la densité spectrale de puissance sur la bande critique $\Delta f_c$, en excluant le pic principal et ses raies voisines immédiates ($|j - i| > 2$).
+- **Puissance de la raie tonale ($P_{\text{tone}}$)** : Somme du pic $i$ et de ses 4 raies adjacentes de leakage ($i-2 \dots i+2$).
+- **Puissance du bruit de masque ($P_{\text{noise}}$)** : Densité spectrale moyenne mesurée sur la fenêtre de masquage locale, en excluant la traînée du ton ($|j - i| > 3$).
 
 #### Step 3 : Émergence brute
 $$\text{TTNR}_{\text{raw}}(i) = 10 \cdot \log_{10}\left(\frac{P_{\text{tone}}}{P_{\text{noise\_total}}}\right) \quad [\text{dB}]$$
 
----
+### 3.3. Triade de Filtrage NVH Dynamique v7.0.0
 
-### 3.3. Triade de Filtrage Psychoacoustique Smart (Anti-Parasite)
+1. **Porte d'Amplitude Absolue Haute Sensibilité (-85 dBFS)** :
+   Autorise les ordres de combustion basse fréquence ($f \ge 15\text{ Hz}$, ex: H1.5 à $37.5\text{ Hz}$) et les sifflements HF à faible niveau absolu mais forte émergence.
 
-Pour éliminer les fluctuations statistiques du bruit de roulement en basse fréquence ($0 - 1200\text{ Hz}$), une triade de filtrage est appliquée :
+2. **Lissage Spectral Preservateur d'Émergence (90%)** :
+   $$\text{TTNR}_{\text{smooth}}(i) = 0.05 \cdot \text{TTNR}_{\text{raw}}(i-1) + 0.90 \cdot \text{TTNR}_{\text{raw}}(i) + 0.05 \cdot \text{TTNR}_{\text{raw}}(i+1)$$
+   Conserve la hauteur exacte des pics émergents sans les raboter.
 
-1. **Porte de Bruit d'Amplitude (-70 dBFS)** :
-   Si $\text{Magnitude}(i) < -70.0\text{ dBFS}$, alors $\text{TTNR}(i) = 0.0\text{ dB}$.
-
-2. **Lissage Spectral Gaußien (3 raies)** :
-   $$\text{TTNR}_{\text{smooth}}(i) = 0.2 \cdot \text{TTNR}_{\text{raw}}(i-1) + 0.6 \cdot \text{TTNR}_{\text{raw}}(i) + 0.2 \cdot \text{TTNR}_{\text{raw}}(i+1)$$
-
-3. **Persistence Temporelle EMA (Exponential Moving Average, $\alpha = 0.35$)** :
-   $$\text{TTNR}_{\text{final}}(i, t) = 0.35 \cdot \text{TTNR}_{\text{smooth}}(i, t) + 0.65 \cdot \text{TTNR}_{\text{final}}(i, t-1)$$
-   *Résultat* : Le bruit parasite fluctuant s'annule, tandis que les vraies harmoniques émergent sous forme de courbes lisses avec détection de pic ultra-stable ($\ge 3.0\text{ dB}$).
+3. **Persistence Temporelle EMA Réactive ($\alpha = 0.75$)** :
+   $$\text{TTNR}_{\text{final}}(i, t) = 0.75 \cdot \text{TTNR}_{\text{smooth}}(i, t) + 0.25 \cdot \text{TTNR}_{\text{final}}(i, t-1)$$
+   Garantit un suivi instantané lors des rampes d'accélération et variations de régime véhicule (*orders tracking*).
 
 ---
 
