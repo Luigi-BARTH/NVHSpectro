@@ -6,7 +6,9 @@ import kotlin.math.sqrt
 
 class FFTProcessor(val fftSize: Int = 2048) {
     private val fft = DoubleFFT_1D(fftSize.toLong())
-    private var lastFrameTtnr: DoubleArray? = null
+    private var lastFrameEnergyDb: Double = -120.0
+    private var historyFrame1: DoubleArray? = null
+    private var historyFrame2: DoubleArray? = null
     
     // Fenêtrage de Hanning pour réduire le "leakage"
     private val window = DoubleArray(fftSize) { i ->
@@ -55,7 +57,7 @@ class FFTProcessor(val fftSize: Int = 2048) {
 
     /**
      * Calcule le spectre d'émergence TTNR (Tone-to-Noise Ratio) selon ECMA-74 / ISO 1996-2 Hybride NVH v7.0.0
-     * Combine la puissance de bande critique et l'émergence spectrale locale (Delta L) pour détecter les sons faibles mais audibles.
+     * Avec Anti-Shock Squelch (chocs de table) et Filtre Médian Temporel sur 3 trames.
      * @param magnitudesDbFS : Tableau de magnitudes en dBFS
      * @param sampleRate : Fréquence d'échantillonnage (ex: 44100 Hz)
      * @return DoubleArray contenant les valeurs TTNR en dB d'émergence filtrées [0..30 dB]
@@ -66,106 +68,118 @@ class FFTProcessor(val fftSize: Int = 2048) {
         val rawTtnr = DoubleArray(binCount)
 
         // Convertir dBFS en puissance linéaire P = 10^(dBFS / 10)
+        var totalFrameEnergySum = 0.0
         val powerLinear = DoubleArray(binCount) { i ->
-            Math.pow(10.0, magnitudesDbFS[i] / 10.0)
+            val p = Math.pow(10.0, magnitudesDbFS[i] / 10.0)
+            totalFrameEnergySum += p
+            p
         }
 
-        for (i in 0 until binCount) {
-            val f = i * df
+        // 1. DÉTECTEUR D'IMPULSION ET CHOC TEMPOREL (SOLUTION 1 : ANTI-SHOCK SQUELCH)
+        // Un choc sur la table fait bondir l'énergie globale de la trame de > 6.0 dB en 20 ms
+        val currentFrameEnergyDb = 10.0 * log10(totalFrameEnergySum.coerceAtLeast(1e-12))
+        val deltaEnergyDb = currentFrameEnergyDb - lastFrameEnergyDb
+        lastFrameEnergyDb = currentFrameEnergyDb
 
-            // 1. Porte d'amplitude profilée selon la fréquence (Double Verrou HF pour MLI)
-            val minMagnitudeGate = when {
-                f < 500.0 -> -75.0
-                f < 4000.0 -> -85.0
-                else -> -75.0 // -75 dBFS en HF: filtre 99.9% de la MLI benigne, capture 100% de la MLI défectueuse
-            }
+        val isTransientShock = deltaEnergyDb > 6.0
 
-            // Filtre Passe-Haut NVH 30 Hz + Porte d'amplitude profilée
-            if (f < 30.0 || magnitudesDbFS[i] < minMagnitudeGate) {
-                continue
-            }
+        if (!isTransientShock) {
+            for (i in 0 until binCount) {
+                val f = i * df
 
-            // Condition de Pic Local Strict : Seuls les vrais sommets de pics sont évalués
-            val isStrictLocalPeak = i > 0 && i < binCount - 1 &&
-                    magnitudesDbFS[i] > magnitudesDbFS[i - 1] &&
-                    magnitudesDbFS[i] > magnitudesDbFS[i + 1]
-
-            if (!isStrictLocalPeak) {
-                continue
-            }
-
-            // 2. Largeur de bande critique (Formule de Terhardt) & Masquage Local Adaptatif NVH (max 350 Hz)
-            val fKhz = f / 1000.0
-            val criticalBandwidth = 25.0 + 75.0 * Math.pow(1.0 + 1.4 * fKhz * fKhz, 0.69)
-            val localMaskingBandwidth = minOf(criticalBandwidth, 350.0)
-            val halfCbBins = (localMaskingBandwidth / (2.0 * df)).toInt().coerceAtLeast(4)
-
-            val minBin = (i - halfCbBins).coerceAtLeast(0)
-            val maxBin = (i + halfCbBins).coerceAtMost(binCount - 1)
-
-            // 3. Puissance du ton (Somme du pic i et de ses 4 raies adjacentes de leakage/fenêtrage Hann +-2 bins)
-            var pTone = powerLinear[i]
-            if (i > 0) pTone += powerLinear[i - 1]
-            if (i > 1) pTone += powerLinear[i - 2]
-            if (i < binCount - 1) pTone += powerLinear[i + 1]
-            if (i < binCount - 2) pTone += powerLinear[i + 2]
-
-            // 4. Puissance du bruit ambiant local
-            var pNoiseSum = 0.0
-            var noiseCount = 0
-
-            for (j in minBin..maxBin) {
-                if (Math.abs(j - i) > 3) {
-                    pNoiseSum += powerLinear[j]
-                    noiseCount++
+                // Porte d'amplitude profilée selon la fréquence (Double Verrou HF pour MLI)
+                val minMagnitudeGate = when {
+                    f < 500.0 -> -75.0
+                    f < 4000.0 -> -85.0
+                    else -> -75.0 // -75 dBFS en HF: filtre 99.9% de la MLI benigne, capture 100% de la MLI défectueuse
                 }
-            }
 
-            if (noiseCount == 0 || pNoiseSum <= 0.0) {
-                continue
-            }
-
-            val pNoiseDensityPerHz = pNoiseSum / (noiseCount * df)
-            val pNoiseTotalInCb = pNoiseDensityPerHz * criticalBandwidth
-
-            // TTNR selon bande critique ECMA-74
-            val ratioCb = if (pNoiseTotalInCb > 0.0) pTone / pNoiseTotalInCb else 0.0
-            val ttnrCbDb = if (ratioCb > 1.0) 10.0 * log10(ratioCb) else 0.0
-
-            // Émergence Spectrale Locale ISO 1996-2 (Delta L par rapport au bruit de fond local immédiat)
-            val localNoiseFloorDbFS = 10.0 * log10(pNoiseDensityPerHz * df)
-            val localEmergenceDb = (magnitudesDbFS[i] - localNoiseFloorDbFS).coerceAtLeast(0.0)
-
-            // Seuil d'émergence adaptatif en fréquence (anti-turbulences & double verrou HF)
-            val minEmergenceRequired = when {
-                f < 1500.0 -> 4.2
-                f < 4000.0 -> 3.5
-                else -> 4.0 // 4.0 dB en HF: élimine les petites fluctuations, valide la MLI/sifflement émergent
-            }
-
-            // Hybridation NVH Psychoacoustique : Valorise les raies émergentes audibles selon la zone fréquentielle
-            val hybridTtnr = if (localEmergenceDb >= minEmergenceRequired) {
-                maxOf(ttnrCbDb, localEmergenceDb - 1.5)
-            } else {
-                if (ttnrCbDb >= minEmergenceRequired) ttnrCbDb else 0.0
-            }
-
-            val finalPeakTtnr = hybridTtnr.coerceIn(0.0, 30.0)
-
-            if (finalPeakTtnr >= 1.0) {
-                rawTtnr[i] = finalPeakTtnr
-                // Reconstitution de la largeur physique du dôme (Leakage Hanning sur bins adjacents)
-                if (i > 0 && rawTtnr[i - 1] < finalPeakTtnr * 0.45) {
-                    rawTtnr[i - 1] = finalPeakTtnr * 0.45
+                // Filtre Passe-Haut NVH 30 Hz + Porte d'amplitude profilée
+                if (f < 30.0 || magnitudesDbFS[i] < minMagnitudeGate) {
+                    continue
                 }
-                if (i < binCount - 1 && rawTtnr[i + 1] < finalPeakTtnr * 0.45) {
-                    rawTtnr[i + 1] = finalPeakTtnr * 0.45
+
+                // Condition de Pic Local Strict : Seuls les vrais sommets de pics sont évalués
+                val isStrictLocalPeak = i > 0 && i < binCount - 1 &&
+                        magnitudesDbFS[i] > magnitudesDbFS[i - 1] &&
+                        magnitudesDbFS[i] > magnitudesDbFS[i + 1]
+
+                if (!isStrictLocalPeak) {
+                    continue
+                }
+
+                // Largeur de bande critique (Formule de Terhardt) & Masquage Local Adaptatif NVH (max 350 Hz)
+                val fKhz = f / 1000.0
+                val criticalBandwidth = 25.0 + 75.0 * Math.pow(1.0 + 1.4 * fKhz * fKhz, 0.69)
+                val localMaskingBandwidth = minOf(criticalBandwidth, 350.0)
+                val halfCbBins = (localMaskingBandwidth / (2.0 * df)).toInt().coerceAtLeast(4)
+
+                val minBin = (i - halfCbBins).coerceAtLeast(0)
+                val maxBin = (i + halfCbBins).coerceAtMost(binCount - 1)
+
+                // Puissance du ton (Somme du pic i et de ses 4 raies adjacentes de leakage/fenêtrage Hann +-2 bins)
+                var pTone = powerLinear[i]
+                if (i > 0) pTone += powerLinear[i - 1]
+                if (i > 1) pTone += powerLinear[i - 2]
+                if (i < binCount - 1) pTone += powerLinear[i + 1]
+                if (i < binCount - 2) pTone += powerLinear[i + 2]
+
+                // Puissance du bruit ambiant local
+                var pNoiseSum = 0.0
+                var noiseCount = 0
+
+                for (j in minBin..maxBin) {
+                    if (Math.abs(j - i) > 3) {
+                        pNoiseSum += powerLinear[j]
+                        noiseCount++
+                    }
+                }
+
+                if (noiseCount == 0 || pNoiseSum <= 0.0) {
+                    continue
+                }
+
+                val pNoiseDensityPerHz = pNoiseSum / (noiseCount * df)
+                val pNoiseTotalInCb = pNoiseDensityPerHz * criticalBandwidth
+
+                // TTNR selon bande critique ECMA-74
+                val ratioCb = if (pNoiseTotalInCb > 0.0) pTone / pNoiseTotalInCb else 0.0
+                val ttnrCbDb = if (ratioCb > 1.0) 10.0 * log10(ratioCb) else 0.0
+
+                // Émergence Spectrale Locale ISO 1996-2 (Delta L par rapport au bruit de fond local immédiat)
+                val localNoiseFloorDbFS = 10.0 * log10(pNoiseDensityPerHz * df)
+                val localEmergenceDb = (magnitudesDbFS[i] - localNoiseFloorDbFS).coerceAtLeast(0.0)
+
+                // Seuil d'émergence adaptatif en fréquence (anti-turbulences & double verrou HF)
+                val minEmergenceRequired = when {
+                    f < 1500.0 -> 4.2
+                    f < 4000.0 -> 3.5
+                    else -> 4.0 // 4.0 dB en HF: élimine les petites fluctuations, valide la MLI/sifflement émergent
+                }
+
+                // Hybridation NVH Psychoacoustique : Valorise les raies émergentes audibles selon la zone fréquentielle
+                val hybridTtnr = if (localEmergenceDb >= minEmergenceRequired) {
+                    maxOf(ttnrCbDb, localEmergenceDb - 1.5)
+                } else {
+                    if (ttnrCbDb >= minEmergenceRequired) ttnrCbDb else 0.0
+                }
+
+                val finalPeakTtnr = hybridTtnr.coerceIn(0.0, 30.0)
+
+                if (finalPeakTtnr >= 1.0) {
+                    rawTtnr[i] = finalPeakTtnr
+                    // Reconstitution de la largeur physique du dôme (Leakage Hanning sur bins adjacents)
+                    if (i > 0 && rawTtnr[i - 1] < finalPeakTtnr * 0.45) {
+                        rawTtnr[i - 1] = finalPeakTtnr * 0.45
+                    }
+                    if (i < binCount - 1 && rawTtnr[i + 1] < finalPeakTtnr * 0.45) {
+                        rawTtnr[i + 1] = finalPeakTtnr * 0.45
+                    }
                 }
             }
         }
 
-        // 4. Filtre de Prominence Spectrale (Anti-Spike 1-Pixel)
-        // Élimine les spikes isolés de 1 pixel produits par la variance statistique du bruit de ventilateur
+        // 2. Filtre de Prominence Spectrale (Anti-Spike 1-Pixel)
         val filteredTtnr = DoubleArray(binCount)
         for (i in 0 until binCount) {
             val valCurr = rawTtnr[i]
@@ -174,16 +188,15 @@ class FFTProcessor(val fftSize: Int = 2048) {
             val prevVal = if (i > 0) rawTtnr[i - 1] else 0.0
             val nextVal = if (i < binCount - 1) rawTtnr[i + 1] else 0.0
 
-            // Un pic physique a des épaules d'énergie (prevVal ou nextVal non-nuls)
             val hasStructure = (prevVal >= 0.20 * valCurr || nextVal >= 0.20 * valCurr)
             if (hasStructure) {
                 filteredTtnr[i] = valCurr
             } else {
-                filteredTtnr[i] = 0.0 // Annuler le spike 1-pixel isolé
+                filteredTtnr[i] = 0.0
             }
         }
 
-        // 5. Lissage Spectral Doux (90% pic actuel) pour préserver la hauteur exacte des raies fines sans l'atténuer
+        // 3. Lissage Spectral Doux
         val smoothedTtnr = DoubleArray(binCount)
         for (i in 0 until binCount) {
             val prev = if (i > 0) filteredTtnr[i - 1] else filteredTtnr[i]
@@ -192,35 +205,29 @@ class FFTProcessor(val fftSize: Int = 2048) {
             smoothedTtnr[i] = 0.05 * prev + 0.90 * curr + 0.05 * next
         }
 
-        // 6. Seuil Couperet de Squelch (Tout TTNR < 1.0 dB est du bruit de fond insignifiant -> 0.0 dB)
+        // Seuil Couperet de Squelch (Tout TTNR < 1.0 dB est du bruit de fond insignifiant -> 0.0 dB)
         for (i in 0 until binCount) {
-            if (smoothedTtnr[i] < 1.0) {
-                smoothedTtnr[i] = 0.0
-            }
-            if (i * df < 30.0) {
+            if (smoothedTtnr[i] < 1.0 || i * df < 30.0) {
                 smoothedTtnr[i] = 0.0
             }
         }
 
-        // 6. Filtre de Persistance Temporelle NVH (Cohérence 2 trames consécutives)
-        // Les vrais sifflements durent sur au moins 2 trames consécutives (t-1 et t).
-        // Les étincelles isolées de bruit aléatoire sont éliminées.
-        val prevFrame = lastFrameTtnr
+        // 4. FILTRE MÉDIAN CONTINU TEMPOREL SUR 3 TRAMES (SOLUTION 3 : EFFACEMENT DES NUAGES ÉPARS)
+        // Les nuages de points isolés s'effacent à 100%. Seules les lignes harmoniques stables (3 trames) subsistent.
+        val h1 = historyFrame1
+        val h2 = historyFrame2
         val finalTtnr = DoubleArray(binCount)
-        if (prevFrame != null && prevFrame.size == binCount) {
+
+        if (h1 != null && h2 != null && h1.size == binCount && h2.size == binCount) {
             for (i in 0 until binCount) {
                 val curr = smoothedTtnr[i]
                 if (curr >= 1.0) {
-                    val prevNear = maxOf(
-                        if (i > 0) prevFrame[i - 1] else 0.0,
-                        prevFrame[i],
-                        if (i < binCount - 1) prevFrame[i + 1] else 0.0
-                    )
-                    if (prevNear >= 0.5) {
-                        finalTtnr[i] = curr
-                    } else {
-                        finalTtnr[i] = curr * 0.35 // Atténuation du flash transitoire éphémère
-                    }
+                    val h1Near = maxOf(if (i > 0) h1[i - 1] else 0.0, h1[i], if (i < binCount - 1) h1[i + 1] else 0.0)
+                    val h2Near = maxOf(if (i > 0) h2[i - 1] else 0.0, h2[i], if (i < binCount - 1) h2[i + 1] else 0.0)
+
+                    // Filtre Min Continu sur 3 trames
+                    val stableTtnr = minOf(curr, h1Near * 1.35, h2Near * 1.65)
+                    finalTtnr[i] = if (stableTtnr < 1.0) 0.0 else stableTtnr
                 } else {
                     finalTtnr[i] = 0.0
                 }
@@ -229,7 +236,10 @@ class FFTProcessor(val fftSize: Int = 2048) {
             System.arraycopy(smoothedTtnr, 0, finalTtnr, 0, binCount)
         }
 
-        lastFrameTtnr = finalTtnr.clone()
+        // Rotation des trames dans l'historique
+        historyFrame2 = historyFrame1?.clone()
+        historyFrame1 = finalTtnr.clone()
+
         return finalTtnr
     }
 }
