@@ -212,8 +212,8 @@ class FFTProcessor(val fftSize: Int = 2048) {
             }
         }
 
-        // 4. FILTRE MÉDIAN CONTINU TEMPOREL SUR 3 TRAMES (SOLUTION 3 : EFFACEMENT DES NUAGES ÉPARS)
-        // Les nuages de points isolés s'effacent à 100%. Seules les lignes harmoniques stables (3 trames) subsistent.
+        // 4. FILTRE DE PERSISTANCE TEMPORELLE NVH SUR 3 TRAMES (SOUPLE +-3 BINS DE DÉPLACEMENT)
+        // Permet de suivre les harmoniques glissantes (sinus, régimes moteur) tout en effaçant 100% des nuages de points parasites.
         val h1 = historyFrame1
         val h2 = historyFrame2
         val finalTtnr = DoubleArray(binCount)
@@ -222,12 +222,25 @@ class FFTProcessor(val fftSize: Int = 2048) {
             for (i in 0 until binCount) {
                 val curr = smoothedTtnr[i]
                 if (curr >= 1.0) {
-                    val h1Near = maxOf(if (i > 0) h1[i - 1] else 0.0, h1[i], if (i < binCount - 1) h1[i + 1] else 0.0)
-                    val h2Near = maxOf(if (i > 0) h2[i - 1] else 0.0, h2[i], if (i < binCount - 1) h2[i + 1] else 0.0)
+                    // Recherche de la raie sur une fenêtre de +-3 bins (pour capter le glissement fréquentiel)
+                    var maxNearH1 = 0.0
+                    var maxNearH2 = 0.0
 
-                    // Filtre Min Continu sur 3 trames
-                    val stableTtnr = minOf(curr, h1Near * 1.35, h2Near * 1.65)
-                    finalTtnr[i] = if (stableTtnr < 1.0) 0.0 else stableTtnr
+                    val startBin = maxOf(0, i - 3)
+                    val endBin = minOf(binCount - 1, i + 3)
+
+                    for (k in startBin..endBin) {
+                        if (h1[k] > maxNearH1) maxNearH1 = h1[k]
+                        if (h2[k] > maxNearH2) maxNearH2 = h2[k]
+                    }
+
+                    // Une raie réelle (fixe ou glissante) est présente sur au moins 2 des 3 trames
+                    val hasTemporalPersistence = (maxNearH1 >= 0.8 || maxNearH2 >= 0.8)
+                    if (hasTemporalPersistence) {
+                        finalTtnr[i] = curr
+                    } else {
+                        finalTtnr[i] = 0.0 // Effacer le point transitoire parasite isolé
+                    }
                 } else {
                     finalTtnr[i] = 0.0
                 }
