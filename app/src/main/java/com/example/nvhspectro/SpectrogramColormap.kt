@@ -125,13 +125,17 @@ fun SpectrogramCanvas(
                 val binIndex = (maxBin - 1) - (y * (displayedBinCount - 1)) / (bitmapHeight - 1)
                 val magnitude = if (binIndex in latestFrame.indices) latestFrame[binIndex] else effectiveMin
                 
-                val rawNormalized = ((magnitude - effectiveMin) / (effectiveMax - effectiveMin)).coerceIn(0.0, 1.0).toFloat()
-                val normalized = if (displayMode == DisplayMode.TTNR && rawNormalized > 0f) {
-                    Math.pow(rawNormalized.toDouble(), 0.65).toFloat()
+                val colorInt = if (displayMode == DisplayMode.TTNR && magnitude < 0.8) {
+                    AndroidColor.BLACK // Noir Mat Absolument Pur pour éteindre 100% des bruits parasites !
                 } else {
-                    rawNormalized
+                    val rawNormalized = ((magnitude - effectiveMin) / (effectiveMax - effectiveMin)).coerceIn(0.0, 1.0).toFloat()
+                    val normalized = if (displayMode == DisplayMode.TTNR && rawNormalized > 0f) {
+                        Math.pow(rawNormalized.toDouble(), 0.65).toFloat()
+                    } else {
+                        rawNormalized
+                    }
+                    getJetColorInt(normalized)
                 }
-                val colorInt = getJetColorInt(normalized)
                 
                 pixels[y * bitmapWidth + (bitmapWidth - 1)] = colorInt
             }

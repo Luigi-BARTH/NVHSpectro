@@ -6,6 +6,7 @@ import kotlin.math.sqrt
 
 class FFTProcessor(val fftSize: Int = 2048) {
     private val fft = DoubleFFT_1D(fftSize.toLong())
+    private var lastFrameTtnr: DoubleArray? = null
     
     // Fenêtrage de Hanning pour réduire le "leakage"
     private val window = DoubleArray(fftSize) { i ->
@@ -173,13 +174,44 @@ class FFTProcessor(val fftSize: Int = 2048) {
             smoothedTtnr[i] = 0.05 * prev + 0.90 * curr + 0.05 * next
         }
 
-        // Zero out tout sous 30 Hz (garantie 0.0 dB sans fuite de lissage)
+        // 6. Seuil Couperet de Squelch (Tout TTNR < 1.0 dB est du bruit de fond insignifiant -> 0.0 dB)
         for (i in 0 until binCount) {
+            if (smoothedTtnr[i] < 1.0) {
+                smoothedTtnr[i] = 0.0
+            }
             if (i * df < 30.0) {
                 smoothedTtnr[i] = 0.0
             }
         }
 
-        return smoothedTtnr
+        // 6. Filtre de Persistance Temporelle NVH (Cohérence 2 trames consécutives)
+        // Les vrais sifflements durent sur au moins 2 trames consécutives (t-1 et t).
+        // Les étincelles isolées de bruit aléatoire sont éliminées.
+        val prevFrame = lastFrameTtnr
+        val finalTtnr = DoubleArray(binCount)
+        if (prevFrame != null && prevFrame.size == binCount) {
+            for (i in 0 until binCount) {
+                val curr = smoothedTtnr[i]
+                if (curr >= 1.0) {
+                    val prevNear = maxOf(
+                        if (i > 0) prevFrame[i - 1] else 0.0,
+                        prevFrame[i],
+                        if (i < binCount - 1) prevFrame[i + 1] else 0.0
+                    )
+                    if (prevNear >= 0.5) {
+                        finalTtnr[i] = curr
+                    } else {
+                        finalTtnr[i] = curr * 0.35 // Atténuation du flash transitoire éphémère
+                    }
+                } else {
+                    finalTtnr[i] = 0.0
+                }
+            }
+        } else {
+            System.arraycopy(smoothedTtnr, 0, finalTtnr, 0, binCount)
+        }
+
+        lastFrameTtnr = finalTtnr.clone()
+        return finalTtnr
     }
 }
