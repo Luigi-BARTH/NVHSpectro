@@ -73,20 +73,26 @@ class FFTProcessor(val fftSize: Int = 2048) {
         for (i in 0 until binCount) {
             val f = i * df
 
-            // Porte d'amplitude profilée selon la fréquence (Isosonie ISO 226 NVH)
+            // 1. Condition de Pic Local Strict : Seuls les vrais sommets de pics sont évalués
+            // Les pentes, vallées et bruits de fond continus sont directement forcés à 0.0 dB
+            val isStrictLocalPeak = i > 0 && i < binCount - 1 &&
+                    magnitudesDbFS[i] > magnitudesDbFS[i - 1] &&
+                    magnitudesDbFS[i] > magnitudesDbFS[i + 1]
+
+            // 2. Porte d'amplitude profilée selon la fréquence (Double Verrou HF pour MLI)
             val minMagnitudeGate = when {
                 f < 500.0 -> -75.0
-                f < 3000.0 -> -85.0
-                else -> -92.0
+                f < 4000.0 -> -85.0
+                else -> -75.0 // -75 dBFS en HF: filtre 99.9% de la MLI benigne, capture 100% de la MLI défectueuse
             }
 
-            // Filtre Passe-Haut NVH 30 Hz + Porte d'amplitude profilée
-            if (f < 30.0 || magnitudesDbFS[i] < minMagnitudeGate) {
+            // Filtre Passe-Haut NVH 30 Hz + Pic Local Strict + Porte d'amplitude profilée
+            if (f < 30.0 || !isStrictLocalPeak || magnitudesDbFS[i] < minMagnitudeGate) {
                 rawTtnr[i] = 0.0
                 continue
             }
 
-            // 1. Largeur de bande critique (Formule de Terhardt) & Masquage Local Adaptatif NVH (max 350 Hz)
+            // 3. Largeur de bande critique (Formule de Terhardt) & Masquage Local Adaptatif NVH (max 350 Hz)
             val fKhz = f / 1000.0
             val criticalBandwidth = 25.0 + 75.0 * Math.pow(1.0 + 1.4 * fKhz * fKhz, 0.69)
             val localMaskingBandwidth = minOf(criticalBandwidth, 350.0)
@@ -95,14 +101,14 @@ class FFTProcessor(val fftSize: Int = 2048) {
             val minBin = (i - halfCbBins).coerceAtLeast(0)
             val maxBin = (i + halfCbBins).coerceAtMost(binCount - 1)
 
-            // 2. Puissance du ton (Somme du pic i et de ses 4 raies adjacentes de leakage/fenêtrage Hann +-2 bins)
+            // 4. Puissance du ton (Somme du pic i et de ses 4 raies adjacentes de leakage/fenêtrage Hann +-2 bins)
             var pTone = powerLinear[i]
             if (i > 0) pTone += powerLinear[i - 1]
             if (i > 1) pTone += powerLinear[i - 2]
             if (i < binCount - 1) pTone += powerLinear[i + 1]
             if (i < binCount - 2) pTone += powerLinear[i + 2]
 
-            // 3. Puissance du bruit ambiant local
+            // 5. Puissance du bruit ambiant local
             var pNoiseSum = 0.0
             var noiseCount = 0
 
@@ -129,11 +135,11 @@ class FFTProcessor(val fftSize: Int = 2048) {
             val localNoiseFloorDbFS = 10.0 * log10(pNoiseDensityPerHz * df)
             val localEmergenceDb = (magnitudesDbFS[i] - localNoiseFloorDbFS).coerceAtLeast(0.0)
 
-            // Seuil d'émergence adaptatif en fréquence (anti-turbulences basse fréquence)
+            // Seuil d'émergence adaptatif en fréquence (anti-turbulences & double verrou HF)
             val minEmergenceRequired = when {
                 f < 1500.0 -> 4.2
-                f < 4000.0 -> 3.2
-                else -> 2.5
+                f < 4000.0 -> 3.5
+                else -> 4.0 // 4.0 dB en HF: élimine les petites fluctuations, valide la MLI/sifflement émergent
             }
 
             // Hybridation NVH Psychoacoustique : Valorise les raies émergentes audibles selon la zone fréquentielle
