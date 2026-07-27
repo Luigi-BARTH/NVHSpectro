@@ -8,6 +8,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.PathEffect
@@ -159,7 +160,7 @@ fun TelemetryGraph(
                 native.drawLine(marginLeft, marginTop + plotHeight, marginLeft + plotWidth, marginTop + plotHeight, axisPaint)
             }
 
-            // Tracé de la courbe du spectre d'émergence 2D
+            // Tracé de la courbe du spectre d'émergence 2D AAA
             if (ttnrSpectrum.isNotEmpty() && displayedBins > 1) {
                 val path = Path()
                 var maxEmergence = 0.0
@@ -180,23 +181,41 @@ fun TelemetryGraph(
                     val normY = (ttnrVal / maxTtnrDb).toFloat()
                     val y = (marginTop + plotHeight) - (normY * plotHeight)
 
-                    if (bin == 0) {
+                    if (i == 0) {
                         path.moveTo(x, y)
                     } else {
                         path.lineTo(x, y)
                     }
                 }
 
+                // Ombrage dégradé translucide sous la courbe (AAA Grade)
+                val fillPath = Path().apply {
+                    addPath(path)
+                    lineTo(marginLeft + plotWidth, marginTop + plotHeight)
+                    lineTo(marginLeft, marginTop + plotHeight)
+                    close()
+                }
+
+                drawPath(
+                    path = fillPath,
+                    brush = Brush.verticalGradient(
+                        colors = listOf(Color(0x55D500F9), Color(0x00D500F9)),
+                        startY = marginTop,
+                        endY = marginTop + plotHeight
+                    )
+                )
+
+                // Tracé de la ligne Néon Magenta
                 drawPath(
                     path = path,
                     color = Color(0xFFD500F9), // Neon Magenta
                     style = Stroke(width = 3.5f)
                 )
 
-                // Curseur Automatique Ultra-Stable si émergence >= 3.0 dB
-                if (maxEmergence >= 3.0 && maxEmergenceBin >= 0) {
+                // Curseur Automatique Ultra-Précis et Alignement Pixel-Perfect du Pic (>= 3.0 dB)
+                if (maxEmergence >= 3.0 && maxEmergenceBin >= minBin) {
                     val peakFreq = ((maxEmergenceBin.toDouble() / totalBins) * nyquist).toInt()
-                    val peakFractionX = maxEmergenceBin.toFloat() / max(1, displayedBins - 1)
+                    val peakFractionX = (maxEmergenceBin - minBin).toFloat() / max(1, displayedBins - 1)
                     val peakX = marginLeft + peakFractionX * plotWidth
                     val peakNormY = (maxEmergence.coerceIn(0.0, maxTtnrDb) / maxTtnrDb).toFloat()
                     val peakY = (marginTop + plotHeight) - (peakNormY * plotHeight)
