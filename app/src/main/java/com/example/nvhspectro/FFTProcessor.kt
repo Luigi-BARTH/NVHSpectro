@@ -133,6 +133,13 @@ class FFTProcessor(val fftSize: Int = 2048) {
             smoothedTtnr[i] = 0.05 * prev + 0.90 * curr + 0.05 * next
         }
 
+        // Zero out tout sous 30 Hz (garantie 0.0 dB sans fuite de lissage)
+        for (i in 0 until binCount) {
+            if (i * df < 30.0) {
+                smoothedTtnr[i] = 0.0
+            }
+        }
+
         return smoothedTtnr
     }
 }

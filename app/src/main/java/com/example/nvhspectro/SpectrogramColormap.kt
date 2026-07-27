@@ -122,7 +122,7 @@ fun SpectrogramCanvas(
             for (y in 0 until bitmapHeight) {
                 System.arraycopy(pixels, y * bitmapWidth + 1, pixels, y * bitmapWidth, bitmapWidth - 1)
 
-                val binIndex = minBin + (y * (displayedBinCount - 1)) / (bitmapHeight - 1)
+                val binIndex = (maxBin - 1) - (y * (displayedBinCount - 1)) / (bitmapHeight - 1)
                 val magnitude = if (binIndex in latestFrame.indices) latestFrame[binIndex] else effectiveMin
                 
                 val normalized = ((magnitude - effectiveMin) / (effectiveMax - effectiveMin)).toFloat()
@@ -328,8 +328,8 @@ fun SpectrogramCanvas(
             // --- DESSIN DES BALISES CLIGNOTANTES D'ÉMERGENCE (Option A: LED Pulsante BORD DROIT pure sans texte) ---
             if (isDetectorEnabled && detectedPeaks.isNotEmpty()) {
                 for (peak in detectedPeaks) {
-                    val yBinRatio = 1f - ((peak.binIndex - minBin).toFloat() / displayedBinCount)
-                    val peakY = marginTop + (yBinRatio * plotHeight).coerceIn(0f, plotHeight)
+                    val binFraction = (peak.binIndex - minBin).toFloat() / displayedBinCount.coerceAtLeast(1)
+                    val peakY = marginTop + ((1f - binFraction) * plotHeight).coerceIn(0f, plotHeight)
 
                     // Couleur : Rouge Néon si TTNR >= 6.0 dB, Jaune/Ambre si TTNR < 6.0 dB
                     val isCritical = peak.ttnrDb >= 6.0
