@@ -32,6 +32,7 @@ fun TelemetryGraph(
     timeWindowSec: Double,
     historySize: Int = 150,
     ttnrSpectrum: DoubleArray = DoubleArray(0),
+    minFreq: Int = 0,
     maxFreq: Int = 10000,
     sampleRate: Int = 44100,
     modifier: Modifier = Modifier
@@ -114,7 +115,9 @@ fun TelemetryGraph(
             val maxTtnrDb = 20.0
             val totalBins = if (ttnrSpectrum.isNotEmpty()) ttnrSpectrum.size else 1024
             val nyquist = sampleRate / 2
-            val displayedBins = min(totalBins, (maxFreq * totalBins) / nyquist)
+            val minBin = ((minFreq * totalBins) / nyquist).coerceIn(0, totalBins - 1)
+            val maxBin = ((maxFreq * totalBins) / nyquist).coerceIn(minBin + 1, totalBins)
+            val displayedBins = (maxBin - minBin).coerceAtLeast(1)
 
             drawIntoCanvas { canvas ->
                 val native = canvas.nativeCanvas
@@ -138,7 +141,7 @@ fun TelemetryGraph(
                 for (step in 0..freqSteps) {
                     val fraction = step.toFloat() / freqSteps
                     val x = marginLeft + fraction * plotWidth
-                    val freqVal = (fraction * maxFreq).toInt()
+                    val freqVal = minFreq + (fraction * (maxFreq - minFreq)).toInt()
 
                     // Ligne de grille verticale fine
                     native.drawLine(x, marginTop, x, marginTop + plotHeight, fineGridPaint)
@@ -162,14 +165,15 @@ fun TelemetryGraph(
                 var maxEmergence = 0.0
                 var maxEmergenceBin = -1
 
-                for (bin in 0 until displayedBins) {
-                    val valTtnr = ttnrSpectrum[bin]
+                for (i in 0 until displayedBins) {
+                    val bin = minBin + i
+                    val valTtnr = if (bin in ttnrSpectrum.indices) ttnrSpectrum[bin] else 0.0
                     if (valTtnr > maxEmergence) {
                         maxEmergence = valTtnr
                         maxEmergenceBin = bin
                     }
 
-                    val fractionX = bin.toFloat() / max(1, displayedBins - 1)
+                    val fractionX = i.toFloat() / max(1, displayedBins - 1)
                     val x = marginLeft + fractionX * plotWidth
 
                     val ttnrVal = valTtnr.coerceIn(0.0, maxTtnrDb)

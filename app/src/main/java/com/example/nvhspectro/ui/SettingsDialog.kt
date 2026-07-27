@@ -24,8 +24,10 @@ fun SettingsDialog(
     onMaxDbChange: (Double) -> Unit,
     fftSize: Int,
     onFftSizeChange: (Int) -> Unit,
+    minFreq: Int = 0,
+    onMinFreqChange: (Int) -> Unit = {},
     maxFreq: Int,
-    onMaxFreqChange: (Int) -> Unit,
+    onMaxFreqChange: (Int) -> Unit = {},
     timeWindowSec: Double,
     onTimeWindowChange: (Double) -> Unit,
     isDetectorEnabled: Boolean = true,
@@ -210,14 +212,27 @@ fun SettingsDialog(
                     }
                 }
                 
-                // Fréquence Max
-                Column {
-                    Text("Fréquence Max d'analyse : $maxFreq Hz", style = MaterialTheme.typography.bodySmall)
-                    Slider(
-                        value = maxFreq.toFloat(),
-                        onValueChange = { onMaxFreqChange(it.toInt()) },
-                        valueRange = 1000f..22050f
-                    )
+                // Plage de Fréquences d'analyse (Min & Max)
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("Fréq Min : $minFreq Hz", style = MaterialTheme.typography.bodySmall)
+                        Slider(
+                            value = minFreq.toFloat(),
+                            onValueChange = { onMinFreqChange(it.toInt()) },
+                            valueRange = 0f..(maxFreq - 100).toFloat().coerceAtLeast(100f)
+                        )
+                    }
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("Fréq Max : $maxFreq Hz", style = MaterialTheme.typography.bodySmall)
+                        Slider(
+                            value = maxFreq.toFloat(),
+                            onValueChange = { onMaxFreqChange(it.toInt()) },
+                            valueRange = (minFreq + 100).toFloat().coerceAtMost(22000f)..22050f
+                        )
+                    }
                 }
             }
         },

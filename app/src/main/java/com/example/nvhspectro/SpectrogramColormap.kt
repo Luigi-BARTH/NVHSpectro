@@ -64,6 +64,7 @@ fun SpectrogramCanvas(
     modifier: Modifier = Modifier,
     minDb: Double = -120.0,
     maxDb: Double = 0.0,
+    minFreq: Int = 0,
     maxFreq: Int = 10000,
     fftSize: Int = 2048,
     sampleRate: Int = 44100,
@@ -80,8 +81,11 @@ fun SpectrogramCanvas(
 
     val totalBinCount = history.first().size
     val nyquistFreq = sampleRate / 2
-    val displayedBinCount = minOf(totalBinCount, (maxFreq * totalBinCount) / nyquistFreq)
-    val actualMaxFreq = (displayedBinCount * nyquistFreq) / totalBinCount
+    val minBin = ((minFreq * totalBinCount) / nyquistFreq).coerceIn(0, totalBinCount - 1)
+    val maxBin = ((maxFreq * totalBinCount) / nyquistFreq).coerceIn(minBin + 1, totalBinCount)
+    val displayedBinCount = (maxBin - minBin).coerceAtLeast(1)
+    val actualMinFreq = (minBin * nyquistFreq) / totalBinCount
+    val actualMaxFreq = (maxBin * nyquistFreq) / totalBinCount
 
     val bitmapWidth = historySize
     val bitmapHeight = displayedBinCount
@@ -118,8 +122,8 @@ fun SpectrogramCanvas(
             for (y in 0 until bitmapHeight) {
                 System.arraycopy(pixels, y * bitmapWidth + 1, pixels, y * bitmapWidth, bitmapWidth - 1)
 
-                val b = bitmapHeight - 1 - y
-                val magnitude = if (b < latestFrame.size) latestFrame[b] else effectiveMin
+                val binIndex = minBin + (y * (displayedBinCount - 1)) / (bitmapHeight - 1)
+                val magnitude = if (binIndex in latestFrame.indices) latestFrame[binIndex] else effectiveMin
                 
                 val normalized = ((magnitude - effectiveMin) / (effectiveMax - effectiveMin)).toFloat()
                 val colorInt = getJetColorInt(normalized)
@@ -211,14 +215,15 @@ fun SpectrogramCanvas(
     }
 
     // --- DÉTECTION DES PICS D'ÉMERGENCE SUR LA TRAME COURANTE ---
-    val detectedPeaks = remember(absHistory, ttnrHistory, isDetectorEnabled, emergenceThresholdDb, magnitudeGateDbFS, displayedBinCount) {
+    val detectedPeaks = remember(absHistory, ttnrHistory, isDetectorEnabled, emergenceThresholdDb, magnitudeGateDbFS, minBin, maxBin) {
         val peaksList = mutableListOf<EmergencePeak>()
         if (isDetectorEnabled && absHistory.isNotEmpty() && ttnrHistory.isNotEmpty()) {
             val latestAbs = absHistory.first()
             val latestTtnr = ttnrHistory.first()
-            val limitBins = minOf(displayedBinCount, latestAbs.size, latestTtnr.size)
+            val startBin = maxOf(1, minBin)
+            val endBin = minOf(latestAbs.size - 1, latestTtnr.size - 1, maxBin)
 
-            for (i in 1 until limitBins - 1) {
+            for (i in startBin until endBin) {
                 val ttnr = latestTtnr[i]
                 val absVal = latestAbs[i]
 
@@ -307,7 +312,7 @@ fun SpectrogramCanvas(
             native.drawLine(marginLeft, marginTop, marginLeft, plotBottom, tickPaint)
             val ySteps = 5
             for (i in 0..ySteps) {
-                val f = actualMaxFreq - (i * actualMaxFreq / ySteps)
+                val f = actualMaxFreq - (i * (actualMaxFreq - actualMinFreq) / ySteps)
                 val y = marginTop + i * (plotHeight / ySteps)
                 
                 native.drawLine(marginLeft - 15f, y, marginLeft, y, tickPaint)
@@ -323,7 +328,7 @@ fun SpectrogramCanvas(
             // --- DESSIN DES BALISES CLIGNOTANTES D'ÉMERGENCE (Option A: LED Pulsante BORD DROIT pure sans texte) ---
             if (isDetectorEnabled && detectedPeaks.isNotEmpty()) {
                 for (peak in detectedPeaks) {
-                    val yBinRatio = 1f - (peak.binIndex.toFloat() / displayedBinCount)
+                    val yBinRatio = 1f - ((peak.binIndex - minBin).toFloat() / displayedBinCount)
                     val peakY = marginTop + (yBinRatio * plotHeight).coerceIn(0f, plotHeight)
 
                     // Couleur : Rouge Néon si TTNR >= 6.0 dB, Jaune/Ambre si TTNR < 6.0 dB
@@ -351,7 +356,7 @@ fun SpectrogramCanvas(
 
             // --- CURSEUR EN FRÉQUENCE DISCRET ---
             val cursorY = marginTop + cursorYRatio * plotHeight
-            val selectedFreqHz = ((1f - cursorYRatio) * actualMaxFreq).toInt()
+            val selectedFreqHz = actualMinFreq + ((1f - cursorYRatio) * (actualMaxFreq - actualMinFreq)).toInt()
 
             native.drawLine(marginLeft, cursorY, plotRight, cursorY, cursorLinePaint)
 

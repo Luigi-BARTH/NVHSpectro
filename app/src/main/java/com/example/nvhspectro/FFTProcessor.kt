@@ -34,7 +34,13 @@ class FFTProcessor(val fftSize: Int = 2048) {
         val magnitudes = DoubleArray(fftSize / 2)
         val normFactor = fftSize / 4.0 
 
+        val df = 44100.0 / fftSize
         for (i in 0 until fftSize / 2) {
+            val f = i * df
+            if (f < 30.0) {
+                magnitudes[i] = -120.0
+                continue
+            }
             val re = fftData[i * 2]
             val im = fftData[i * 2 + 1]
             val mag = sqrt(re * re + im * im)
@@ -65,9 +71,8 @@ class FFTProcessor(val fftSize: Int = 2048) {
 
         for (i in 0 until binCount) {
             val f = i * df
-            // Porte de bruit NVH v7 : autoriser les ordres combustion à partir de 15 Hz (H1.5 = 37.5 Hz @ 1500 RPM)
-            // et porte d'amplitude à -85 dBFS pour capter le sifflement réducteur/gear whine HF à bas niveau.
-            if (f < 15.0 || magnitudesDbFS[i] < -85.0) {
+            // Filtre Passe-Haut NVH 30 Hz (rien sous 30 Hz) + Porte d'amplitude -85 dBFS
+            if (f < 30.0 || magnitudesDbFS[i] < -85.0) {
                 rawTtnr[i] = 0.0
                 continue
             }

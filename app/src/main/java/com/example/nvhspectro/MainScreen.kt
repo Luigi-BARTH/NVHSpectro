@@ -72,6 +72,7 @@ fun AppScreen(viewModel: MainViewModel) {
     val minDb by viewModel.minDb.collectAsState()
     val maxDb by viewModel.maxDb.collectAsState()
     val fftSize by viewModel.fftSize.collectAsState()
+    val minFreq by viewModel.minFreq.collectAsState()
     val maxFreq by viewModel.maxFreq.collectAsState()
     val timeWindowSec by viewModel.timeWindowSec.collectAsState()
     val displayMode by viewModel.displayMode.collectAsState()
@@ -145,6 +146,7 @@ fun AppScreen(viewModel: MainViewModel) {
                     ttnrHistory = fftHistoryTTNR,
                     minDb = minDb,
                     maxDb = maxDb,
+                    minFreq = minFreq,
                     maxFreq = maxFreq,
                     fftSize = fftSize,
                     sampleRate = 44100,
@@ -252,6 +254,7 @@ fun AppScreen(viewModel: MainViewModel) {
                             timeWindowSec = timeWindowSec,
                             historySize = viewModel.historySize,
                             ttnrSpectrum = latestTTNRSpectrum,
+                            minFreq = minFreq,
                             maxFreq = maxFreq
                         )
                     }
@@ -270,14 +273,16 @@ fun AppScreen(viewModel: MainViewModel) {
                 onDismiss = { showSettingsDialog = false },
                 minDb = minDb,
                 maxDb = maxDb,
-                onMinDbChange = { viewModel.updateSettings(it, maxDb, fftSize, maxFreq, timeWindowSec) },
-                onMaxDbChange = { viewModel.updateSettings(minDb, it, fftSize, maxFreq, timeWindowSec) },
+                onMinDbChange = { viewModel.updateSettings(it, maxDb, fftSize, minFreq, maxFreq, timeWindowSec) },
+                onMaxDbChange = { viewModel.updateSettings(minDb, it, fftSize, minFreq, maxFreq, timeWindowSec) },
                 fftSize = fftSize,
-                onFftSizeChange = { viewModel.updateSettings(minDb, maxDb, it, maxFreq, timeWindowSec) },
+                onFftSizeChange = { viewModel.updateSettings(minDb, maxDb, it, minFreq, maxFreq, timeWindowSec) },
+                minFreq = minFreq,
+                onMinFreqChange = { viewModel.updateSettings(minDb, maxDb, fftSize, it, maxFreq, timeWindowSec) },
                 maxFreq = maxFreq,
-                onMaxFreqChange = { viewModel.updateSettings(minDb, maxDb, fftSize, it, timeWindowSec) },
+                onMaxFreqChange = { viewModel.updateSettings(minDb, maxDb, fftSize, minFreq, it, timeWindowSec) },
                 timeWindowSec = timeWindowSec,
-                onTimeWindowChange = { viewModel.updateSettings(minDb, maxDb, fftSize, maxFreq, it) },
+                onTimeWindowChange = { viewModel.updateSettings(minDb, maxDb, fftSize, minFreq, maxFreq, it) },
                 isDetectorEnabled = isDetectorEnabled,
                 onDetectorEnabledChange = { enabled ->
                     viewModel.updateDetectorSettings(enabled, emergenceThresholdDb, magnitudeGateDbFS)

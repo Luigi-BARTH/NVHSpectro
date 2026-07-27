@@ -75,6 +75,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _fftSize = MutableStateFlow(2048)
     val fftSize: StateFlow<Int> = _fftSize.asStateFlow()
 
+    private val _minFreq = MutableStateFlow(0)
+    val minFreq: StateFlow<Int> = _minFreq.asStateFlow()
+
     private val _maxFreq = MutableStateFlow(10000)
     val maxFreq: StateFlow<Int> = _maxFreq.asStateFlow()
 
@@ -103,9 +106,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _magnitudeGateDbFS.value = magnitudeGateDb
     }
 
-    fun updateSettings(newMinDb: Double, newMaxDb: Double, newFftSize: Int, newMaxFreq: Int, newTimeWindow: Double) {
+    fun updateSettings(newMinDb: Double, newMaxDb: Double, newFftSize: Int, newMinFreq: Int, newMaxFreq: Int, newTimeWindow: Double) {
         _minDb.value = newMinDb
         _maxDb.value = newMaxDb
+        _minFreq.value = newMinFreq.coerceAtLeast(0)
         _maxFreq.value = newMaxFreq
         _timeWindowSec.value = newTimeWindow
         if (_fftSize.value != newFftSize) {
