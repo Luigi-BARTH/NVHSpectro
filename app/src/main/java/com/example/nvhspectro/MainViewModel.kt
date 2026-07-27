@@ -94,10 +94,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _isDetectorEnabled = MutableStateFlow(true)
     val isDetectorEnabled: StateFlow<Boolean> = _isDetectorEnabled.asStateFlow()
 
-    private val _emergenceThresholdDb = MutableStateFlow(3.0)
+    private val _emergenceThresholdDb = MutableStateFlow(2.5)
     val emergenceThresholdDb: StateFlow<Double> = _emergenceThresholdDb.asStateFlow()
 
-    private val _magnitudeGateDbFS = MutableStateFlow(-80.0)
+    private val _magnitudeGateDbFS = MutableStateFlow(-90.0)
     val magnitudeGateDbFS: StateFlow<Double> = _magnitudeGateDbFS.asStateFlow()
 
     fun updateDetectorSettings(enabled: Boolean, thresholdDb: Double, magnitudeGateDb: Double) {

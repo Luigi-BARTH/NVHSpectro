@@ -32,9 +32,9 @@ fun SettingsDialog(
     onTimeWindowChange: (Double) -> Unit,
     isDetectorEnabled: Boolean = true,
     onDetectorEnabledChange: (Boolean) -> Unit = {},
-    emergenceThresholdDb: Double = 3.0,
+    emergenceThresholdDb: Double = 2.5,
     onEmergenceThresholdChange: (Double) -> Unit = {},
-    magnitudeGateDbFS: Double = -80.0,
+    magnitudeGateDbFS: Double = -90.0,
     onMagnitudeGateChange: (Double) -> Unit = {}
 ) {
     val sampleRate = 44100.0
@@ -108,7 +108,7 @@ fun SettingsDialog(
                                 Slider(
                                     value = magnitudeGateDbFS.toFloat(),
                                     onValueChange = { onMagnitudeGateChange(it.toDouble()) },
-                                    valueRange = -90f..-30f
+                                    valueRange = -100f..-30f
                                 )
                             }
                         }

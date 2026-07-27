@@ -53,8 +53,8 @@ class FFTProcessor(val fftSize: Int = 2048) {
     }
 
     /**
-     * Calcule le spectre d'émergence TTNR (Tone-to-Noise Ratio) selon ECMA-74 / ISO 1996-2 (Optimisé NVH Véhicule v7.0.0)
-     * Avec Porte de Bruit Psychoacoustique (-85 dBFS), Bande de Masquage Locale Adaptative et Lissage Dynamique.
+     * Calcule le spectre d'émergence TTNR (Tone-to-Noise Ratio) selon ECMA-74 / ISO 1996-2 Hybride NVH v7.0.0
+     * Combine la puissance de bande critique et l'émergence spectrale locale (Delta L) pour détecter les sons faibles mais audibles.
      * @param magnitudesDbFS : Tableau de magnitudes en dBFS
      * @param sampleRate : Fréquence d'échantillonnage (ex: 44100 Hz)
      * @return DoubleArray contenant les valeurs TTNR en dB d'émergence filtrées [0..30 dB]
@@ -71,19 +71,16 @@ class FFTProcessor(val fftSize: Int = 2048) {
 
         for (i in 0 until binCount) {
             val f = i * df
-            // Filtre Passe-Haut NVH 30 Hz (rien sous 30 Hz) + Porte d'amplitude -85 dBFS
-            if (f < 30.0 || magnitudesDbFS[i] < -85.0) {
+            // Filtre Passe-Haut NVH 30 Hz + Porte d'amplitude à -92 dBFS pour capter les harmoniques faibles audibles
+            if (f < 30.0 || magnitudesDbFS[i] < -92.0) {
                 rawTtnr[i] = 0.0
                 continue
             }
 
-            // 1. Largeur de bande critique (Formule de Terhardt) & Masquage Local Adaptatif NVH (max 400 Hz)
+            // 1. Largeur de bande critique (Formule de Terhardt) & Masquage Local Adaptatif NVH (max 350 Hz)
             val fKhz = f / 1000.0
             val criticalBandwidth = 25.0 + 75.0 * Math.pow(1.0 + 1.4 * fKhz * fKhz, 0.69)
-            
-            // Pour l'estimation de la densité de bruit locale en environnement automobile non-plat,
-            // on borne la fenêtre de calcul du bruit à max 400 Hz pour éviter d'intégrer le bruit broadband HF.
-            val localMaskingBandwidth = minOf(criticalBandwidth, 400.0)
+            val localMaskingBandwidth = minOf(criticalBandwidth, 350.0)
             val halfCbBins = (localMaskingBandwidth / (2.0 * df)).toInt().coerceAtLeast(4)
 
             val minBin = (i - halfCbBins).coerceAtLeast(0)
@@ -96,7 +93,7 @@ class FFTProcessor(val fftSize: Int = 2048) {
             if (i < binCount - 1) pTone += powerLinear[i + 1]
             if (i < binCount - 2) pTone += powerLinear[i + 2]
 
-            // 3. Puissance du bruit de masque ambiant (excluant le pic et ses voisins immédiats +-3 bins)
+            // 3. Puissance du bruit ambiant local
             var pNoiseSum = 0.0
             var noiseCount = 0
 
@@ -115,13 +112,23 @@ class FFTProcessor(val fftSize: Int = 2048) {
             val pNoiseDensityPerHz = pNoiseSum / (noiseCount * df)
             val pNoiseTotalInCb = pNoiseDensityPerHz * criticalBandwidth
 
-            if (pNoiseTotalInCb > 0.0) {
-                val ratio = pTone / pNoiseTotalInCb
-                val ttnrDb = if (ratio > 1.0) 10.0 * log10(ratio) else 0.0
-                rawTtnr[i] = ttnrDb.coerceIn(0.0, 30.0)
+            // TTNR selon bande critique ECMA-74
+            val ratioCb = if (pNoiseTotalInCb > 0.0) pTone / pNoiseTotalInCb else 0.0
+            val ttnrCbDb = if (ratioCb > 1.0) 10.0 * log10(ratioCb) else 0.0
+
+            // Émergence Spectrale Locale ISO 1996-2 (Delta L par rapport au bruit de fond local immédiat)
+            val localNoiseFloorDbFS = 10.0 * log10(pNoiseDensityPerHz * df)
+            val localEmergenceDb = (magnitudesDbFS[i] - localNoiseFloorDbFS).coerceAtLeast(0.0)
+
+            // Hybridation NVH Psychoacoustique : Si la raie émerge de >= 2.5 dB au-dessus du bruit de fond local,
+            // l'oreille humaine l'entend nettement. On valorise cette émergence même si le bruit total intégré CB est fort.
+            val hybridTtnr = if (localEmergenceDb >= 2.5) {
+                maxOf(ttnrCbDb, localEmergenceDb - 1.5)
             } else {
-                rawTtnr[i] = 0.0
+                ttnrCbDb
             }
+
+            rawTtnr[i] = hybridTtnr.coerceIn(0.0, 30.0)
         }
 
         // 4. Lissage Spectral Doux (90% pic actuel) pour préserver la hauteur exacte des raies fines sans l'atténuer

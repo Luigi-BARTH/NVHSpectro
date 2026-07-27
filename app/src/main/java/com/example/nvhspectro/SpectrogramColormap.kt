@@ -71,8 +71,8 @@ fun SpectrogramCanvas(
     historySize: Int = 150,
     displayMode: DisplayMode = DisplayMode.ABSOLUTE,
     isDetectorEnabled: Boolean = true,
-    emergenceThresholdDb: Double = 3.0,
-    magnitudeGateDbFS: Double = -80.0
+    emergenceThresholdDb: Double = 2.5,
+    magnitudeGateDbFS: Double = -90.0
 ) {
     if (history.isEmpty()) {
         Canvas(modifier = modifier.fillMaxSize()) {}
@@ -125,7 +125,12 @@ fun SpectrogramCanvas(
                 val binIndex = (maxBin - 1) - (y * (displayedBinCount - 1)) / (bitmapHeight - 1)
                 val magnitude = if (binIndex in latestFrame.indices) latestFrame[binIndex] else effectiveMin
                 
-                val normalized = ((magnitude - effectiveMin) / (effectiveMax - effectiveMin)).toFloat()
+                val rawNormalized = ((magnitude - effectiveMin) / (effectiveMax - effectiveMin)).coerceIn(0.0, 1.0).toFloat()
+                val normalized = if (displayMode == DisplayMode.TTNR && rawNormalized > 0f) {
+                    Math.pow(rawNormalized.toDouble(), 0.65).toFloat()
+                } else {
+                    rawNormalized
+                }
                 val colorInt = getJetColorInt(normalized)
                 
                 pixels[y * bitmapWidth + (bitmapWidth - 1)] = colorInt
