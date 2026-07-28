@@ -7,8 +7,7 @@ import kotlin.math.sqrt
 class FFTProcessor(val fftSize: Int = 2048) {
     private val fft = DoubleFFT_1D(fftSize.toLong())
     private var lastFrameEnergyDb: Double = -120.0
-    private var historyFrame1: DoubleArray? = null
-    private var historyFrame2: DoubleArray? = null
+    private var integratedTtnr: DoubleArray? = null
     
     // Fenêtrage de Hanning pour réduire le "leakage"
     private val window = DoubleArray(fftSize) { i ->
@@ -57,7 +56,7 @@ class FFTProcessor(val fftSize: Int = 2048) {
 
     /**
      * Calcule le spectre d'émergence TTNR (Tone-to-Noise Ratio) selon ECMA-74 / ISO 1996-2 Hybride NVH v7.0.0
-     * Avec Anti-Shock Squelch (chocs de table) et Filtre Médian Temporel sur 3 trames.
+     * Avec Intégration Temporelle Exponentielle (tau = 220 ms) et Anti-Shock Squelch.
      * @param magnitudesDbFS : Tableau de magnitudes en dBFS
      * @param sampleRate : Fréquence d'échantillonnage (ex: 44100 Hz)
      * @return DoubleArray contenant les valeurs TTNR en dB d'émergence filtrées [0..30 dB]
@@ -75,8 +74,7 @@ class FFTProcessor(val fftSize: Int = 2048) {
             p
         }
 
-        // 1. DÉTECTEUR D'IMPULSION ET CHOC TEMPOREL (SOLUTION 1 : ANTI-SHOCK SQUELCH)
-        // Un choc sur la table fait bondir l'énergie globale de la trame de > 6.0 dB en 20 ms
+        // 1. DÉTECTEUR D'IMPULSION ET CHOC TEMPOREL (ANTI-SHOCK SQUELCH)
         val currentFrameEnergyDb = 10.0 * log10(totalFrameEnergySum.coerceAtLeast(1e-12))
         val deltaEnergyDb = currentFrameEnergyDb - lastFrameEnergyDb
         lastFrameEnergyDb = currentFrameEnergyDb
@@ -201,63 +199,25 @@ class FFTProcessor(val fftSize: Int = 2048) {
             }
         }
 
-        // 3. Lissage Spectral Doux
-        val smoothedTtnr = DoubleArray(binCount)
-        for (i in 0 until binCount) {
-            val prev = if (i > 0) filteredTtnr[i - 1] else filteredTtnr[i]
-            val curr = filteredTtnr[i]
-            val next = if (i < binCount - 1) filteredTtnr[i + 1] else filteredTtnr[i]
-            smoothedTtnr[i] = 0.05 * prev + 0.90 * curr + 0.05 * next
-        }
-
-        // Seuil Couperet de Squelch (Tout TTNR < 1.0 dB est du bruit de fond insignifiant -> 0.0 dB)
-        for (i in 0 until binCount) {
-            if (smoothedTtnr[i] < 1.0 || i * df < 30.0) {
-                smoothedTtnr[i] = 0.0
-            }
-        }
-
-        // 4. FILTRE DE PERSISTANCE TEMPORELLE NVH SUR 3 TRAMES (SOUPLE +-3 BINS DE DÉPLACEMENT)
-        // Permet de suivre les harmoniques glissantes (sinus, régimes moteur) tout en effaçant 100% des nuages de points parasites.
-        val h1 = historyFrame1
-        val h2 = historyFrame2
+        // 3. INTÉGRATION TEMPORELLE EXPONENTIELLE NVH (EMA tau = 220 ms, alpha = 0.18)
+        // Les fluctuations de bruit ambiant s'égalisent vers 0.0 dB. Les vraies raies émergent de façon spectaculaire.
+        val alpha = 0.18
         val finalTtnr = DoubleArray(binCount)
+        val prevIntegrated = integratedTtnr
 
-        if (h1 != null && h2 != null && h1.size == binCount && h2.size == binCount) {
+        if (prevIntegrated != null && prevIntegrated.size == binCount) {
             for (i in 0 until binCount) {
-                val curr = smoothedTtnr[i]
-                if (curr >= 1.0) {
-                    // Recherche de la raie sur une fenêtre de +-3 bins (pour capter le glissement fréquentiel)
-                    var maxNearH1 = 0.0
-                    var maxNearH2 = 0.0
-
-                    val startBin = maxOf(0, i - 3)
-                    val endBin = minOf(binCount - 1, i + 3)
-
-                    for (k in startBin..endBin) {
-                        if (h1[k] > maxNearH1) maxNearH1 = h1[k]
-                        if (h2[k] > maxNearH2) maxNearH2 = h2[k]
-                    }
-
-                    // Une raie réelle (fixe ou glissante) est présente sur au moins 2 des 3 trames
-                    val hasTemporalPersistence = (maxNearH1 >= 0.8 || maxNearH2 >= 0.8)
-                    if (hasTemporalPersistence) {
-                        finalTtnr[i] = curr
-                    } else {
-                        finalTtnr[i] = 0.0 // Effacer le point transitoire parasite isolé
-                    }
-                } else {
-                    finalTtnr[i] = 0.0
-                }
+                val rawVal = filteredTtnr[i]
+                val integVal = (1.0 - alpha) * prevIntegrated[i] + alpha * rawVal
+                finalTtnr[i] = if (integVal < 0.8 || i * df < 30.0) 0.0 else integVal
             }
         } else {
-            System.arraycopy(smoothedTtnr, 0, finalTtnr, 0, binCount)
+            for (i in 0 until binCount) {
+                finalTtnr[i] = if (filteredTtnr[i] < 0.8 || i * df < 30.0) 0.0 else filteredTtnr[i]
+            }
         }
 
-        // Rotation des trames candidates dans l'historique (smoothedTtnr) pour éviter tout blocage d'extinction
-        historyFrame2 = historyFrame1?.clone()
-        historyFrame1 = smoothedTtnr.clone()
-
+        integratedTtnr = finalTtnr.clone()
         return finalTtnr
     }
 }
