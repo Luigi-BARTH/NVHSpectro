@@ -5,7 +5,7 @@ plugins {
 }
 
 base {
-    archivesName.set("APP_NVH_Spectro_v6")
+    archivesName.set("APP_NVH_Spectro_v7")
 }
 
 android {
