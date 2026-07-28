@@ -200,7 +200,7 @@ class FFTProcessor(val fftSize: Int = 2048) {
         }
 
         // 3. INTÉGRATION TEMPORELLE EXPONENTIELLE NVH (EMA tau = 220 ms, alpha = 0.18)
-        // Les fluctuations de bruit ambiant s'égalisent vers 0.0 dB. Les vraies raies émergent de façon spectaculaire.
+        // Seuil couperet strict 5.0 dB : Tout TTNR < 5.0 dB est ramené strictement à 0.0 dB
         val alpha = 0.18
         val finalTtnr = DoubleArray(binCount)
         val prevIntegrated = integratedTtnr
@@ -209,11 +209,11 @@ class FFTProcessor(val fftSize: Int = 2048) {
             for (i in 0 until binCount) {
                 val rawVal = filteredTtnr[i]
                 val integVal = (1.0 - alpha) * prevIntegrated[i] + alpha * rawVal
-                finalTtnr[i] = if (integVal < 0.8 || i * df < 30.0) 0.0 else integVal
+                finalTtnr[i] = if (integVal < 5.0 || i * df < 30.0) 0.0 else integVal
             }
         } else {
             for (i in 0 until binCount) {
-                finalTtnr[i] = if (filteredTtnr[i] < 0.8 || i * df < 30.0) 0.0 else filteredTtnr[i]
+                finalTtnr[i] = if (filteredTtnr[i] < 5.0 || i * df < 30.0) 0.0 else filteredTtnr[i]
             }
         }
 
