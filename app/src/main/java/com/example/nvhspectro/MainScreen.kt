@@ -166,9 +166,10 @@ fun AppScreen(viewModel: MainViewModel) {
                     ) {
                         Text(
                             text = if (isFrozen) "▶ Dégeler" else "⏸ Figer",
-                            fontSize = 11.sp,
+                            fontSize = 10.5.sp,
                             fontWeight = FontWeight.Bold,
-                            maxLines = 1
+                            maxLines = 1,
+                            softWrap = false
                         )
                     }
 
@@ -183,9 +184,10 @@ fun AppScreen(viewModel: MainViewModel) {
                     ) {
                         Text(
                             text = "📸 Exporter",
-                            fontSize = 11.sp,
+                            fontSize = 10.5.sp,
                             fontWeight = FontWeight.Bold,
-                            maxLines = 1
+                            maxLines = 1,
+                            softWrap = false
                         )
                     }
                 }
@@ -224,58 +226,60 @@ fun AppScreen(viewModel: MainViewModel) {
                     kinematicsConfig = kinematicsConfig
                 )
 
-                // Bannière Kinématique GMPe en haut à droite du Spectrogramme
-                if (kinematicsConfig.isEnabled) {
-                    val effV1000 = kinematicsConfig.getEffectiveV1000()
-                    val curSpeed = telemetry.speedKmh
-                    val h1Hz = kinematicsConfig.calculateH1FreqHz(curSpeed)
-                    val curRpm = kinematicsConfig.calculateRpm(curSpeed).toInt()
-
-                    Surface(
-                        color = Color(0xCC121212),
-                        shape = RoundedCornerShape(6.dp),
-                        modifier = Modifier
-                            .align(Alignment.TopEnd)
-                            .padding(end = 12.dp, top = 8.dp)
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(8.dp)
-                                    .background(Color(0xFF00E676), CircleShape)
-                            )
-                            val titleText = if (kinematicsConfig.vehicleName.isNotEmpty()) kinematicsConfig.vehicleName else "GMPe Actif"
-                            Text(
-                                text = "🚘 $titleText | V1000: %.1f km/h | H1: %.1fHz (%d RPM)".format(effV1000, h1Hz, curRpm),
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = Color.White
-                            )
-                        }
-                    }
-                }
-                
-                // Sélecteur de Mode (Absolue vs TTNR) en haut à gauche du Spectrogramme
-                Row(
+                // Superposition d'éléments en haut à gauche (Sélecteur de Mode + Bannière GMPe en dessous)
+                Column(
                     modifier = Modifier
                         .align(Alignment.TopStart)
                         .padding(start = 12.dp, top = 8.dp),
-                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
-                    DisplayMode.values().forEach { mode ->
-                        FilterChip(
-                            selected = (displayMode == mode),
-                            onClick = { viewModel.setDisplayMode(mode) },
-                            label = { Text(mode.label, fontSize = 11.sp, fontWeight = FontWeight.Bold) },
-                            colors = FilterChipDefaults.filterChipColors(
-                                selectedContainerColor = MaterialTheme.colorScheme.primary,
-                                selectedLabelColor = MaterialTheme.colorScheme.onPrimary
+                    // Sélecteur de Mode (Absolue vs TTNR)
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        DisplayMode.values().forEach { mode ->
+                            FilterChip(
+                                selected = (displayMode == mode),
+                                onClick = { viewModel.setDisplayMode(mode) },
+                                label = { Text(mode.label, fontSize = 11.sp, fontWeight = FontWeight.Bold) },
+                                colors = FilterChipDefaults.filterChipColors(
+                                    selectedContainerColor = MaterialTheme.colorScheme.primary,
+                                    selectedLabelColor = MaterialTheme.colorScheme.onPrimary
+                                )
                             )
-                        )
+                        }
+                    }
+
+                    // Bannière Kinématique GMPe (Positionnée sous les chips pour éviter tout chevauchement)
+                    if (kinematicsConfig.isEnabled) {
+                        val effV1000 = kinematicsConfig.getEffectiveV1000()
+                        val curSpeed = telemetry.speedKmh
+                        val h1Hz = kinematicsConfig.calculateH1FreqHz(curSpeed)
+                        val curRpm = kinematicsConfig.calculateRpm(curSpeed).toInt()
+
+                        Surface(
+                            color = Color(0xCC121212),
+                            shape = RoundedCornerShape(6.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(8.dp)
+                                        .background(Color(0xFF00E676), CircleShape)
+                                )
+                                val titleText = if (kinematicsConfig.vehicleName.isNotEmpty()) kinematicsConfig.vehicleName else "GMPe Actif"
+                                Text(
+                                    text = "🚘 $titleText | V1000: %.1f km/h | H1: %.1fHz (%d RPM)".format(effV1000, h1Hz, curRpm),
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color.White
+                                )
+                            }
+                        }
                     }
                 }
                 

@@ -9,7 +9,7 @@ enum class KinematicsInputMode(val label: String) {
 data class KinematicsConfig(
     val isEnabled: Boolean = false,
     val inputMode: KinematicsInputMode = KinematicsInputMode.V1000,
-    val v1000Kmh: Double = 35.0,            // Vitesse en km/h pour 1000 RPM
+    val v1000Kmh: Double = 10.0,            // Vitesse en km/h pour 1000 RPM
     val globalGearRatio: Double = 9.5,        // Rapport total de réduction
     val gearReductionRatio: Double = 3.2,     // Rapport réducteur / descente
     val axleRatio: Double = 3.0,              // Rapport de pont

@@ -49,7 +49,7 @@ fun KinematicsDialog(
         KinematicsConfig(
             isEnabled = isEnabled,
             inputMode = selectedMode,
-            v1000Kmh = v1000Text.toDoubleOrNull() ?: 35.0,
+            v1000Kmh = v1000Text.toDoubleOrNull() ?: 10.0,
             globalGearRatio = globalRatioText.toDoubleOrNull() ?: 9.5,
             gearReductionRatio = reductionRatioText.toDoubleOrNull() ?: 3.2,
             axleRatio = axleRatioText.toDoubleOrNull() ?: 3.0,
@@ -105,14 +105,14 @@ fun KinematicsDialog(
                 OutlinedTextField(
                     value = vehicleName,
                     onValueChange = { vehicleName = it },
-                    label = { Text("Nom / Modèle Véhicule (ex: Peugeot e-208)") },
+                    label = { Text("Nom / Modèle Véhicule") },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )
                 OutlinedTextField(
                     value = motorName,
                     onValueChange = { motorName = it },
-                    label = { Text("Nom Moteur / GMPe (ex: Nidec 100kW)") },
+                    label = { Text("Nom Moteur / GMPe") },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )
