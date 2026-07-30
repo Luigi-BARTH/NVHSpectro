@@ -47,9 +47,9 @@ fun EmergenceReportDialog(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Column {
+                    Column(modifier = Modifier.weight(1f)) {
                         Text(
-                            text = "📊 Rapport d'Émergence Harmonique NVH",
+                            text = "📊 Rapport d'Émergence NVH",
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold,
                             fontSize = 16.sp
@@ -62,9 +62,6 @@ fun EmergenceReportDialog(
                                 fontWeight = FontWeight.SemiBold
                             )
                         }
-                    }
-                    TextButton(onClick = onClearReport) {
-                        Text("Effacer", color = MaterialTheme.colorScheme.error, fontSize = 12.sp)
                     }
                 }
 
@@ -79,9 +76,9 @@ fun EmergenceReportDialog(
                     ) {
                         Text(
                             text = if (!kinematicsConfig.isEnabled) 
-                                "⚠️ Activez la kinématique GMPe pour caractériser les rangs d'harmoniques H_k." 
+                                "⚠️ Activez la cinématique GMPe pour caractériser les rangs d'harmoniques H_k." 
                             else 
-                                "Aucune émergence harmonique significative détectée pour le moment.",
+                                "Aucune émergence harmonique significative (>= 0,4s) détectée pour le moment.",
                             fontSize = 13.sp,
                             color = Color.Gray
                         )
@@ -115,7 +112,7 @@ fun EmergenceReportDialog(
 
                 Divider()
 
-                // Boutons d'action : Réinitialiser & Fermer
+                // Boutons d'action : Réinitialiser & Fermer (Formatage AAA strict 1 ligne sans retour à la ligne)
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
@@ -123,12 +120,28 @@ fun EmergenceReportDialog(
                 ) {
                     OutlinedButton(
                         onClick = onClearReport,
+                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
                         colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error)
                     ) {
-                        Text("🔄 Réinitialiser le rapport", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                        Text(
+                            text = "🔄 Réinitialiser",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 11.sp,
+                            maxLines = 1,
+                            softWrap = false
+                        )
                     }
-                    Button(onClick = onDismiss) {
-                        Text("Fermer")
+                    Button(
+                        onClick = onDismiss,
+                        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 6.dp)
+                    ) {
+                        Text(
+                            text = "Fermer",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 11.sp,
+                            maxLines = 1,
+                            softWrap = false
+                        )
                     }
                 }
             }

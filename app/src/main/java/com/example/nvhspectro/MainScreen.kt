@@ -226,7 +226,7 @@ fun AppScreen(viewModel: MainViewModel) {
                     kinematicsConfig = kinematicsConfig
                 )
 
-                // Superposition d'éléments en haut à gauche (Sélecteur de Mode + Bannière GMPe en dessous)
+                // Superposition d'éléments en haut à gauche (Sélecteur de Mode + Bannière Cinématique GMPe en dessous)
                 Column(
                     modifier = Modifier
                         .align(Alignment.TopStart)
@@ -250,12 +250,11 @@ fun AppScreen(viewModel: MainViewModel) {
                         }
                     }
 
-                    // Bannière Kinématique GMPe (Positionnée sous les chips pour éviter tout chevauchement)
+                    // Bannière Cinématique GMPe (Positionnée sous les chips pour éviter tout chevauchement)
                     if (kinematicsConfig.isEnabled) {
                         val effV1000 = kinematicsConfig.getEffectiveV1000()
                         val curSpeed = telemetry.speedKmh
-                        val h1Hz = kinematicsConfig.calculateH1FreqHz(curSpeed)
-                        val curRpm = kinematicsConfig.calculateRpm(curSpeed).toInt()
+                        val isActiveSpeed = curSpeed > 1.0f
 
                         Surface(
                             color = Color(0xCC121212),
@@ -266,18 +265,34 @@ fun AppScreen(viewModel: MainViewModel) {
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(6.dp)
                             ) {
+                                // LED d'état agrandie (12dp) : ROUGE si Vitesse <= 1 km/h (Inactif), VERTE si > 1 km/h (Actif)
                                 Box(
                                     modifier = Modifier
-                                        .size(8.dp)
-                                        .background(Color(0xFF00E676), CircleShape)
+                                        .size(12.dp)
+                                        .background(
+                                            if (isActiveSpeed) Color(0xFF00E676) else Color(0xFFFF1744),
+                                            CircleShape
+                                        )
                                 )
-                                val titleText = if (kinematicsConfig.vehicleName.isNotEmpty()) kinematicsConfig.vehicleName else "GMPe Actif"
-                                Text(
-                                    text = "🚘 $titleText | V1000: %.1f km/h | H1: %.1fHz (%d RPM)".format(effV1000, h1Hz, curRpm),
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = Color.White
-                                )
+                                val titleText = if (kinematicsConfig.vehicleName.isNotEmpty()) kinematicsConfig.vehicleName else "GMPe"
+                                
+                                if (isActiveSpeed) {
+                                    val h1Hz = kinematicsConfig.calculateH1FreqHz(curSpeed)
+                                    val curRpm = kinematicsConfig.calculateRpm(curSpeed).toInt()
+                                    Text(
+                                        text = "🚘 $titleText | V1000: %.1f km/h | H1: %.1fHz (%d RPM)".format(effV1000, h1Hz, curRpm),
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = Color.White
+                                    )
+                                } else {
+                                    Text(
+                                        text = "🚘 $titleText | Inactif (< 1 km/h) | V1000: %.1f km/h".format(effV1000),
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = Color(0xFFFFCDD2)
+                                    )
+                                }
                             }
                         }
                     }

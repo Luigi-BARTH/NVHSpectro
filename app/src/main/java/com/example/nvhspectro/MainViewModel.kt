@@ -38,14 +38,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _emergenceReportEntries = MutableStateFlow<List<EmergenceReportEntry>>(emptyList())
     val emergenceReportEntries: StateFlow<List<EmergenceReportEntry>> = _emergenceReportEntries.asStateFlow()
 
-    private val candidatePeakMap = mutableMapOf<String, Long>()
+    private val candidateTrackerList = mutableListOf<CandidateHarmonicTracker>()
+    private var ttnrPersistenceCount = IntArray(0)
+    private val recentRawTTNRBuffer = mutableListOf<DoubleArray>()
 
     fun updateKinematicsConfig(config: KinematicsConfig) {
         _kinematicsConfig.value = config
     }
 
     fun clearEmergenceReport() {
-        candidatePeakMap.clear()
+        candidateTrackerList.clear()
+        ttnrPersistenceCount = IntArray(0)
+        recentRawTTNRBuffer.clear()
         _emergenceReportEntries.value = emptyList()
         _trackedHarmonicTags.value = emptyList()
     }
@@ -191,17 +195,51 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     // Traitement FFT Absolu
                     val magnitudes = fftProcessor.processFFT(audioBuffer)
                     
-                    // Traitement TTNR (Émergence tonale ECMA-74) avec Lissage Psychoacoustique
+                    // Traitement TTNR (Émergence tonale ECMA-74)
                     val rawTtnr = fftProcessor.computeTTNR(magnitudes, 44100)
                     
-                    // Persistence temporelle EMA NVH v7 (Alpha = 0.75) : réactivité rapide en rampe de régime
+                    // Initialisation / Ajustement de la taille du tampon de persistance 150 ms
+                    if (ttnrPersistenceCount.size != rawTtnr.size) {
+                        ttnrPersistenceCount = IntArray(rawTtnr.size)
+                        recentRawTTNRBuffer.clear()
+                    }
+
+                    // Enregistrement de la trame brute dans le tampon rétrospectif (6 trames ~= 150 ms)
+                    val rawCopy = rawTtnr.clone()
+                    recentRawTTNRBuffer.add(0, rawCopy)
+                    if (recentRawTTNRBuffer.size > 6) {
+                        recentRawTTNRBuffer.removeLast()
+                    }
+
+                    // Calcul de la persistance par bin et validation du tampon rétrospectif 150 ms
+                    val validatedTtnr = DoubleArray(rawTtnr.size)
+                    val retroUnmaskBins = mutableListOf<Int>()
+
+                    for (i in rawTtnr.indices) {
+                        if (rawTtnr[i] >= 2.0) {
+                            ttnrPersistenceCount[i]++
+                        } else {
+                            ttnrPersistenceCount[i] = 0
+                        }
+
+                        if (ttnrPersistenceCount[i] >= 6) {
+                            validatedTtnr[i] = rawTtnr[i]
+                            if (ttnrPersistenceCount[i] == 6) {
+                                retroUnmaskBins.add(i)
+                            }
+                        } else {
+                            validatedTtnr[i] = 0.0
+                        }
+                    }
+
+                    // Lissage temporel EMA NVH
                     val ttnrSpectrum = DoubleArray(rawTtnr.size)
                     if (previousTTNRSpectrum.size == rawTtnr.size) {
                         for (i in rawTtnr.indices) {
-                            ttnrSpectrum[i] = 0.75 * rawTtnr[i] + 0.25 * previousTTNRSpectrum[i]
+                            ttnrSpectrum[i] = 0.75 * validatedTtnr[i] + 0.25 * previousTTNRSpectrum[i]
                         }
                     } else {
-                        System.arraycopy(rawTtnr, 0, ttnrSpectrum, 0, rawTtnr.size)
+                        System.arraycopy(validatedTtnr, 0, ttnrSpectrum, 0, validatedTtnr.size)
                     }
                     previousTTNRSpectrum = ttnrSpectrum
                     _latestTTNRSpectrum.value = ttnrSpectrum
@@ -212,9 +250,24 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     if (curAbs.size > maxHist) curAbs.removeLast()
                     _fftHistoryAbsolute.value = curAbs
 
-                    // Mettre à jour l'historique TTNR
+                    // Mettre à jour l'historique TTNR avec déverrouillage rétroactif 150 ms (Zéro Amputation)
                     val curTtnr = _fftHistoryTTNR.value.toMutableList()
                     curTtnr.add(0, ttnrSpectrum)
+                    
+                    // Restitution rétroactive des 5 trames précédentes pour les pics validés à 150 ms
+                    if (retroUnmaskBins.isNotEmpty() && curTtnr.size >= 6 && recentRawTTNRBuffer.size >= 6) {
+                        for (k in 1..5) {
+                            if (k < curTtnr.size && k < recentRawTTNRBuffer.size) {
+                                val pastRow = curTtnr[k].clone()
+                                val pastRaw = recentRawTTNRBuffer[k]
+                                for (binIdx in retroUnmaskBins) {
+                                    pastRow[binIdx] = pastRaw[binIdx]
+                                }
+                                curTtnr[k] = pastRow
+                            }
+                        }
+                    }
+
                     if (curTtnr.size > maxHist) curTtnr.removeLast()
                     _fftHistoryTTNR.value = curTtnr
 
@@ -227,10 +280,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     if (curTelem.size > maxHist) curTelem.removeLast()
                     _telemetryHistory.value = curTelem
 
-                    // Traitement des Harmoniques & Détection de Kinématique NVH avec Filtre Anti-Bruit (0.4s persistance min)
+                    // Traitement des Harmoniques & Détection de Cinématique NVH (Actif UNIQUEMENT si Vitesse > 1.0 km/h)
                     val kConfig = _kinematicsConfig.value
-                    if (kConfig.isEnabled) {
-                        val speedKmh = _telemetryState.value.speedKmh
+                    val speedKmh = _telemetryState.value.speedKmh
+
+                    if (kConfig.isEnabled && speedKmh > 1.0f) {
                         val h1FreqHz = kConfig.calculateH1FreqHz(speedKmh)
                         val nowMs = System.currentTimeMillis()
                         
@@ -239,12 +293,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                             val totalBins = ttnrSpectrum.size
                             val df = nyquistFreq / totalBins
                             
-                            val newDetectedTags = mutableListOf<TrackedHarmonicTag>()
-                            val reportMap = _emergenceReportEntries.value.associateBy { it.orderName }.toMutableMap()
-                            
                             val threshDb = _emergenceThresholdDb.value
                             val gateDbFS = _magnitudeGateDbFS.value
-                            val activeCandidatesThisFrame = mutableSetOf<String>()
+                            val currentRpmInt = kConfig.calculateRpm(speedKmh).toInt()
+
+                            val updatedTrackersThisFrame = mutableSetOf<CandidateHarmonicTracker>()
                             
                             for (i in 1 until totalBins - 1) {
                                 val ttnrVal = ttnrSpectrum[i]
@@ -255,67 +308,107 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                                     val nextTtnr = ttnrSpectrum[i + 1]
                                     if (ttnrVal >= prevTtnr && ttnrVal >= nextTtnr) {
                                         val freqHz = i * df
-                                        val orderRatio = freqHz / h1FreqHz
-                                        val orderNearestHalf = (Math.round(orderRatio * 2.0) / 2.0)
+                                        val exactOrderRatio = freqHz / h1FreqHz
                                         
-                                        if (Math.abs(orderRatio - orderNearestHalf) <= 0.25 && orderNearestHalf >= 0.5) {
-                                            val orderName = if (orderNearestHalf % 1.0 == 0.0) "H${orderNearestHalf.toInt()}" else "H${orderNearestHalf}"
-                                            activeCandidatesThisFrame.add(orderName)
+                                        if (exactOrderRatio >= 0.5) {
+                                            // Recherche d'un candidat existant à +-0.10 d'ordre (ex: 22.1 à 22.3 pour 22.2)
+                                            val existingTracker = candidateTrackerList.find { 
+                                                Math.abs(it.currentMeanOrder - exactOrderRatio) <= 0.10 
+                                            }
 
-                                            val firstSeen = candidatePeakMap.getOrPut(orderName) { nowMs }
-                                            val durationMs = nowMs - firstSeen
-
-                                            // Exigence : Détection continue d'au moins 0.4s (400 ms) pour valider une réelle émergence véhicule
-                                            if (durationMs >= 400L) {
-                                                val tag = TrackedHarmonicTag(
-                                                    orderName = orderName,
-                                                    orderValue = orderNearestHalf,
-                                                    freqHz = freqHz.toInt(),
-                                                    ttnrDb = ttnrVal,
-                                                    absDbFS = absVal,
-                                                    speedKmh = speedKmh,
-                                                    rpm = kConfig.calculateRpm(speedKmh),
-                                                    binIndex = i,
-                                                    lastSeenTimestampMs = nowMs
+                                            if (existingTracker != null) {
+                                                existingTracker.orderSum += exactOrderRatio
+                                                existingTracker.count++
+                                                existingTracker.lastSeenTimestampMs = nowMs
+                                                existingTracker.lastFreqHz = freqHz.toInt()
+                                                existingTracker.maxTtnrDb = maxOf(existingTracker.maxTtnrDb, ttnrVal)
+                                                existingTracker.maxAbsDbFS = maxOf(existingTracker.maxAbsDbFS, absVal)
+                                                existingTracker.minSpeedKmh = minOf(existingTracker.minSpeedKmh, speedKmh)
+                                                existingTracker.maxSpeedKmh = maxOf(existingTracker.maxSpeedKmh, speedKmh)
+                                                existingTracker.minRpm = minOf(existingTracker.minRpm, currentRpmInt)
+                                                existingTracker.maxRpm = maxOf(existingTracker.maxRpm, currentRpmInt)
+                                                existingTracker.minFreqHz = minOf(existingTracker.minFreqHz, freqHz.toInt())
+                                                existingTracker.maxFreqHz = maxOf(existingTracker.maxFreqHz, freqHz.toInt())
+                                                existingTracker.binIndex = i
+                                                updatedTrackersThisFrame.add(existingTracker)
+                                            } else {
+                                                val newTracker = CandidateHarmonicTracker(
+                                                    orderSum = exactOrderRatio,
+                                                    count = 1,
+                                                    firstSeenTimestampMs = nowMs,
+                                                    lastSeenTimestampMs = nowMs,
+                                                    lastFreqHz = freqHz.toInt(),
+                                                    maxTtnrDb = ttnrVal,
+                                                    maxAbsDbFS = absVal,
+                                                    minSpeedKmh = speedKmh,
+                                                    maxSpeedKmh = speedKmh,
+                                                    minRpm = currentRpmInt,
+                                                    maxRpm = currentRpmInt,
+                                                    minFreqHz = freqHz.toInt(),
+                                                    maxFreqHz = freqHz.toInt(),
+                                                    binIndex = i
                                                 )
-                                                newDetectedTags.add(tag)
-                                                
-                                                // Accumulation dans le rapport d'émergences
-                                                val currentRpmInt = kConfig.calculateRpm(speedKmh).toInt()
-                                                val existing = reportMap[orderName]
-                                                if (existing != null) {
-                                                    existing.minSpeedKmh = minOf(existing.minSpeedKmh, speedKmh)
-                                                    existing.maxSpeedKmh = maxOf(existing.maxSpeedKmh, speedKmh)
-                                                    existing.minRpm = minOf(existing.minRpm, currentRpmInt)
-                                                    existing.maxRpm = maxOf(existing.maxRpm, currentRpmInt)
-                                                    existing.minFreqHz = minOf(existing.minFreqHz, freqHz.toInt())
-                                                    existing.maxFreqHz = maxOf(existing.maxFreqHz, freqHz.toInt())
-                                                    existing.maxEmergenceDb = maxOf(existing.maxEmergenceDb, ttnrVal)
-                                                    existing.countDetections++
-                                                    existing.lastTimestampMs = nowMs
-                                                } else {
-                                                    reportMap[orderName] = EmergenceReportEntry(
-                                                        orderName = orderName,
-                                                        orderValue = orderNearestHalf,
-                                                        minSpeedKmh = speedKmh,
-                                                        maxSpeedKmh = speedKmh,
-                                                        minRpm = currentRpmInt,
-                                                        maxRpm = currentRpmInt,
-                                                        minFreqHz = freqHz.toInt(),
-                                                        maxFreqHz = freqHz.toInt(),
-                                                        maxEmergenceDb = ttnrVal,
-                                                        countDetections = 1,
-                                                        lastTimestampMs = nowMs
-                                                    )
-                                                }
+                                                candidateTrackerList.add(newTracker)
+                                                updatedTrackersThisFrame.add(newTracker)
                                             }
                                         }
                                     }
                                 }
                             }
                             
-                            // Nettoyer les candidats absents de la trame courante
-                            candidatePeakMap.keys.retainAll(activeCandidatesThisFrame)
+                            // Éliminer les candidats non mis à jour depuis plus de 250 ms (perte de pic)
+                            candidateTrackerList.retainAll { nowMs - it.lastSeenTimestampMs <= 250L }
+
+                            // Valider et enregistrer les candidats ayant au moins 0.4s (400 ms) d'émergence continue
+                            val newDetectedTags = mutableListOf<TrackedHarmonicTag>()
+                            val reportMap = _emergenceReportEntries.value.associateBy { it.orderName }.toMutableMap()
+
+                            for (tracker in candidateTrackerList) {
+                                if (nowMs - tracker.firstSeenTimestampMs >= 400L) {
+                                    val orderName = tracker.formattedOrderName
+                                    val orderValue = Math.round(tracker.currentMeanOrder * 10.0) / 10.0
+
+                                    val tag = TrackedHarmonicTag(
+                                        orderName = orderName,
+                                        orderValue = orderValue,
+                                        freqHz = tracker.lastFreqHz,
+                                        ttnrDb = tracker.maxTtnrDb,
+                                        absDbFS = tracker.maxAbsDbFS,
+                                        speedKmh = speedKmh,
+                                        rpm = kConfig.calculateRpm(speedKmh),
+                                        binIndex = tracker.binIndex,
+                                        lastSeenTimestampMs = nowMs
+                                    )
+                                    newDetectedTags.add(tag)
+
+                                    val existingReport = reportMap[orderName]
+                                    if (existingReport != null) {
+                                        existingReport.minSpeedKmh = minOf(existingReport.minSpeedKmh, tracker.minSpeedKmh)
+                                        existingReport.maxSpeedKmh = maxOf(existingReport.maxSpeedKmh, tracker.maxSpeedKmh)
+                                        existingReport.minRpm = minOf(existingReport.minRpm, tracker.minRpm)
+                                        existingReport.maxRpm = maxOf(existingReport.maxRpm, tracker.maxRpm)
+                                        existingReport.minFreqHz = minOf(existingReport.minFreqHz, tracker.minFreqHz)
+                                        existingReport.maxFreqHz = maxOf(existingReport.maxFreqHz, tracker.maxFreqHz)
+                                        existingReport.maxEmergenceDb = maxOf(existingReport.maxEmergenceDb, tracker.maxTtnrDb)
+                                        existingReport.countDetections++
+                                        existingReport.lastTimestampMs = nowMs
+                                    } else {
+                                        reportMap[orderName] = EmergenceReportEntry(
+                                            orderName = orderName,
+                                            orderValue = orderValue,
+                                            minSpeedKmh = tracker.minSpeedKmh,
+                                            maxSpeedKmh = tracker.maxSpeedKmh,
+                                            minRpm = tracker.minRpm,
+                                            maxRpm = tracker.maxRpm,
+                                            minFreqHz = tracker.minFreqHz,
+                                            maxFreqHz = tracker.maxFreqHz,
+                                            maxEmergenceDb = tracker.maxTtnrDb,
+                                            countDetections = 1,
+                                            lastTimestampMs = nowMs
+                                        )
+                                    }
+                                }
+                            }
 
                             // Mise à jour de la rémanence (fusionner les nouveaux tags avec les tags récents encore valides)
                             val maxHoldMs = (kConfig.holdTimeSec * 1000.0).toLong().coerceAtLeast(1000L)

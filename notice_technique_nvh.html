@@ -1,0 +1,340 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Notice Technique & Guide NVH Spectro v8.0.0</title>
+    <!-- Google Fonts & MathJax CDN for LaTeX equations -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;600&family=Inter:wght@300;400;600;700;900&display=swap" rel="stylesheet">
+    <script src="https://polyfill.io/v3/polyfill.min.js?features=es6"></script>
+    <script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+    <style>
+        :root {
+            --bg-dark: #0B0F19;
+            --card-bg: #141B2D;
+            --card-border: #232D47;
+            --accent-blue: #38BDF8;
+            --accent-green: #22C55E;
+            --accent-amber: #F59E0B;
+            --accent-purple: #A855F7;
+            --text-main: #F8FAFC;
+            --text-muted: #94A3B8;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            background-color: var(--bg-dark);
+            color: var(--text-main);
+            line-height: 1.6;
+            padding: 2rem 1rem;
+        }
+
+        .container {
+            max-width: 1100px;
+            margin: 0 auto;
+        }
+
+        header {
+            background: linear-gradient(135deg, #1E293B 0%, #0F172A 100%);
+            border: 1px solid var(--card-border);
+            border-radius: 16px;
+            padding: 2.5rem;
+            margin-bottom: 2rem;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 1.5rem;
+        }
+
+        header h1 {
+            font-size: 2.2rem;
+            font-weight: 900;
+            background: linear-gradient(90deg, #38BDF8, #818CF8);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            margin-bottom: 0.5rem;
+        }
+
+        header p {
+            color: var(--text-muted);
+            font-size: 1.05rem;
+        }
+
+        .badge-version {
+            background: rgba(56, 189, 248, 0.15);
+            color: var(--accent-blue);
+            border: 1px solid var(--accent-blue);
+            padding: 0.5rem 1rem;
+            border-radius: 9999px;
+            font-weight: 700;
+            font-size: 0.9rem;
+        }
+
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+            gap: 1.5rem;
+            margin-bottom: 2rem;
+        }
+
+        .card {
+            background-color: var(--card-bg);
+            border: 1px solid var(--card-border);
+            border-radius: 14px;
+            padding: 1.8rem;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.3);
+            transition: transform 0.2s ease, border-color 0.2s ease;
+        }
+
+        .card:hover {
+            border-color: var(--accent-blue);
+        }
+
+        .card h2 {
+            font-size: 1.35rem;
+            font-weight: 700;
+            color: var(--accent-blue);
+            margin-bottom: 1rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .card h3 {
+            font-size: 1.1rem;
+            font-weight: 600;
+            color: var(--accent-green);
+            margin: 1.2rem 0 0.5rem 0;
+        }
+
+        p, li {
+            color: #CBD5E1;
+            font-size: 0.98rem;
+            margin-bottom: 0.8rem;
+        }
+
+        ul {
+            padding-left: 1.3rem;
+            margin-bottom: 1rem;
+        }
+
+        code, pre {
+            font-family: 'Fira Code', monospace;
+            background: #090D16;
+            color: #38BDF8;
+            padding: 0.2rem 0.4rem;
+            border-radius: 6px;
+            font-size: 0.9rem;
+        }
+
+        .formula-box {
+            background: #090D16;
+            border-left: 4px solid var(--accent-purple);
+            padding: 1.2rem;
+            border-radius: 8px;
+            margin: 1rem 0;
+            overflow-x: auto;
+        }
+
+        .alert-box {
+            background: rgba(245, 158, 11, 0.1);
+            border: 1px solid var(--accent-amber);
+            border-radius: 10px;
+            padding: 1rem 1.2rem;
+            margin: 1rem 0;
+            color: #FCD34D;
+        }
+
+        .alert-box strong {
+            color: var(--accent-amber);
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 1rem 0;
+            background: #090D16;
+            border-radius: 8px;
+            overflow: hidden;
+        }
+
+        th, td {
+            padding: 0.8rem 1rem;
+            text-align: left;
+            border-bottom: 1px solid var(--card-border);
+            font-size: 0.9rem;
+        }
+
+        th {
+            background: #1E293B;
+            color: var(--accent-blue);
+            font-weight: 700;
+        }
+
+        footer {
+            text-align: center;
+            padding: 2rem;
+            color: var(--text-muted);
+            font-size: 0.9rem;
+            border-top: 1px solid var(--card-border);
+            margin-top: 2rem;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <div>
+                <h1>Notice Technique & Guide DSP / NVH</h1>
+                <p>Application Android <strong>NVH Spectro v8.0.0</strong> — Métrologie Acoustique Véhicule & GMPe</p>
+                <p style="font-size: 0.85rem; color: #64748B; margin-top: 0.3rem;">Auteur : Louis BARTHELEMY | VIBRATEAM [Vibratec (Everenn Group)]</p>
+            </div>
+            <div class="badge-version">
+                Version v8.0.0 (Build 2026)
+            </div>
+        </header>
+
+        <section class="card" style="margin-bottom: 2rem;">
+            <h2>📱 1. Vue d'Ensemble & Architecture de l'Application</h2>
+            <p>
+                <strong>NVH Spectro</strong> est une application Android professionnelle d'expertise acoustique et de diagnostic vibratoire pour véhicules automobiles et groupes motopropulseurs électriques (GMPe).
+            </p>
+            <ul>
+                <li><strong>Acquisition Audio Temps Réel</strong> : Échantillonnage à 44,1 kHz avec overlap de 50 % ($\Delta f \approx 21,5\text{ Hz}$).</li>
+                <li><strong>Double Traitement Spectral Synchronisé</strong> : Spectrogramme d'Amplitude Absolue ($\text{dBFS}$) et Spectrogramme d'Émergence Tonale ($\text{TTNR ISO 1996-2 / ECMA-74}$).</li>
+                <li><strong>Télémétrie GPS Synchronisée</strong> : Acquisition 1-to-1 milliseconde par milliseconde de la vitesse ($\text{km/h}$), de l'accélération ($g$) et du régime moteur ($\text{RPM}$).</li>
+            </ul>
+        </section>
+
+        <div class="grid">
+            <section class="card">
+                <h2>⚙️ 2. Module Cinématique GMPe</h2>
+                <p>Le module de cinématique permet de convertir la vitesse du véhicule ($\text{km/h}$) en fréquence fondamentale de rotation $H_1$ ($\text{Hz}$) et en régime moteur ($\text{RPM}$).</p>
+                
+                <h3>3 Modes de Saisie Disponibles :</h3>
+                <ul>
+                    <li><strong>V1000 Direct</strong> : Indication directe de la correspondance en $\text{km/h}$ pour $1000\text{ RPM}$ (ex: $10,0\text{ km/h}$).</li>
+                    <li><strong>Rapport Global</strong> : Saisie du ratio total de réduction $R_{\text{total}}$ et du rayon du pneu sous charge $R_{\text{pneu}}$.</li>
+                    <li><strong>Chaîne Détaillée</strong> : Décomposition exacte (Ratio Réducteur / Descente $\times$ Ratio de Pont $\times$ Rayon Pneu).</li>
+                </ul>
+
+                <div class="formula-box">
+                    \[ H_1(\text{Hz}) = \frac{\text{Vitesse}(\text{km/h}) \times 1000}{3600 \times V_{1000}} \times \frac{1000}{60} \]
+                </div>
+            </section>
+
+            <section class="card">
+                <h2>🔬 3. Théorie du TTNR (ECMA-74 / ISO 1996-2)</h2>
+                <p>Le <strong>Tone-to-Noise Ratio (TTNR)</strong> quantifie l'émergence d'une raie spectrale pure par rapport au niveau du bruit ambiant local situé dans sa bande critique psychoacoustique.</p>
+
+                <h3>Bande Critique de Terhardt :</h3>
+                <div class="formula-box">
+                    \[ \Delta f_{\text{critique}}(f) = 25 + 75 \cdot \left[ 1 + 1.4 \cdot \left( \frac{f}{1000} \right)^2 \right]^{0.69} \text{ (Hz)} \]
+                </div>
+
+                <h3>Calcul de l'Émergence :</h3>
+                <div class="formula-box">
+                    \[ \text{TTNR (dB)} = 10 \cdot \log_{10} \left( \frac{P_{\text{ton}}}{P_{\text{bruit\_moyen}} \cdot \Delta f_{\text{leakage}}} \right) \]
+                </div>
+            </section>
+        </div>
+
+        <section class="card" style="margin-bottom: 2rem;">
+            <h2>🛡️ 4. Triade des Filtres Anti-Bruit & Tampon Rétrospectif 150 ms</h2>
+            <p>Pour éliminer 100 % des fausses émergences dues aux chocs de chaussée, aux bruits de roulement et à la troncature du filtre passe-haut, <strong>NVH Spectro v8.0.0</strong> intègre une triade de filtres DSP de haute précision :</p>
+
+            <table>
+                <thead>
+                    <tr>
+                        <th>Filtre DSP</th>
+                        <th>Seuil / Plage</th>
+                        <th>Rôle Métrologique & Effet NVH</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td><strong>1. Filtre HPF Colormaps</strong></td>
+                        <td>$43,0\text{ Hz}$</td>
+                        <td>Élimine les bruits infra-graves et le souffle du microphone sous $43\text{ Hz}$.</td>
+                    </tr>
+                    <tr>
+                        <td><strong>2. Borne Inférieure de Bruit TTNR</strong></td>
+                        <td>$\ge 45,0\text{ Hz}$</td>
+                        <td>
+                            Garantit que la bande de bruit d'un pic ne descend jamais sous le filtre passe-haut. 
+                            <strong>Conséquence</strong> : Première émergence valide calculée à $\approx 95\text{ Hz}$.
+                        </td>
+                    </tr>
+                    <tr>
+                        <td><strong>3. Tampon Rétrospectif TTNR (150 ms)</strong></td>
+                        <td>$150\text{ ms}$ (6 trames)</td>
+                        <td>
+                            Rejette tout bruit transitoire $< 150\text{ ms}$. 
+                            <strong>Zéro Amputation</strong> : Dès qu'une émergence réelle atteint $150\text{ ms}$, les 5 trames précédentes sont déverrouillées rétrospectivement pour afficher le phénomène depuis $t = 0,0\text{ s}$ !
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+
+            <div class="alert-box">
+                <strong>💡 Note sur l'Absence d'Amputation :</strong> Grâce au tampon rétrospectif de 150 ms, l'affichage de l'émergence tonale sur le spectrogramme n'est jamais amputé de son début. Dès le critère validé, l'émergence est dessinée dans son intégralité depuis la première milliseconde.
+            </div>
+        </section>
+
+        <section class="card" style="margin-bottom: 2rem;">
+            <h2>📊 5. Suivi d'Ordres Réducteur au 1/10e & Rapport d'Émergence</h2>
+            <p>Dans un réducteur ou pont GMPe, les rapports de denture génèrent des harmoniques non entières (ex: $H_{7.4}$, $H_{14.8}$, $H_{22.2}$, $H_{13.5}$).</p>
+
+            <h3>1. Fenêtrage Dynamique à $\pm 0,10$ d'Ordre :</h3>
+            <p>
+                L'algorithme évalue à chaque trame l'ordre instantané $O_{\text{inst}} = \frac{f}{H_1}$. Les pics sont regroupés et suivis de manière fluide à $\pm 0,10$ près autour de leur moyenne.
+            </p>
+
+            <h3>2. Persistance d'Émergence Véhicule (0,4 s) :</h3>
+            <p>
+                Un ordre n'est consigné dans le <strong>Rapport d'Émergence</strong> et affiché sous forme de balise sur le spectrogramme (ex: <code>H22.2 (+8.5dB)</code>) que s'il se maintient en continu pendant au moins <strong>0,4 seconde (400 ms)</strong> pendant l'accélération.
+            </p>
+
+            <h3>3. Bouton Réinitialiser :</h3>
+            <p>
+                Le dialogue de rapport comporte un bouton <code>🔄 Réinitialiser</code> permettant d'effacer instantanément l'historique d'émergence et de démarrer un nouvel essai sur route à zéro.
+            </p>
+        </section>
+
+        <section class="card">
+            <h2>📖 6. Guide d'Utilisation Pas-à-Pas sur Véhicule</h2>
+            <ol style="padding-left: 1.5rem;">
+                <li style="margin-bottom: 0.8rem;">
+                    <strong>Démarrage</strong> : Lancez l'application <code>NVH Spectro</code>. L'acquisition audio et GPS démarre automatiquement dès l'ouverture.
+                </li>
+                <li style="margin-bottom: 0.8rem;">
+                    <strong>Configuration Cinématique</strong> : Appuyez sur le bouton <code>⚙️ GMPe</code> en bas à gauche. Activez l'interrupteur, renseignez la V1000 (ex: <code>10.0</code>) et saisissez les identifiants véhicule / moteur. Validez. La bannière verte apparaît en haut à gauche.
+                </li>
+                <li style="margin-bottom: 0.8rem;">
+                    <strong>Sélecteur de Mode Visualisation</strong> : Basculez entre le mode <code>Absolue (dBFS)</code> pour la dynamique acoustique globale et le mode <code>TTNR (Emergence)</code> pour isoler les sifflements et émergences d'ordres.
+                </li>
+                <li style="margin-bottom: 0.8rem;">
+                    <strong>Analyse en Roulement / Rampe</strong> : Réalisez votre essai en accélération. Les balises clignotantes apparaissent sur les ordres émergents (ex: <code>H22.2</code>) avec une rémanence visuelle configurable.
+                </li>
+                <li style="margin-bottom: 0.8rem;">
+                    <strong>Consultation du Rapport</strong> : Cliquez sur <code>📊 Rapport</code> pour consulter le tableau récapitulatif synthétisant les ordres détectés, leurs plages de vitesse ($\text{km/h}$), de régime ($\text{RPM}$), de fréquence ($\text{Hz}$) et leur niveau d'émergence maximal.
+                </li>
+            </ol>
+        </section>
+
+        <footer>
+            Notice Technique Officielle — NVH Spectro v8.0.0 — VIBRATEAM [Vibratec (Everenn Group)]
+        </footer>
+    </div>
+</body>
+</html>

@@ -3,7 +3,11 @@
 **Auteur** : Louis BARTHELEMY  
 **Société** : VIBRATEAM [Vibratec (Everenn Group)]  
 **Application** : NVH Spectro  
-**Version** : v8.0.0 (Build 2026)  
+**Version** : v8.0.0 (Version Avancée - Build 2026)  
+**Références** :  
+- 🔹 **v7.0.0** : Version Base (Référence Analyse Spectrale & Télémétrie Standard)  
+- 🔸 **v8.0.0** : Version Avancée (Référence Expert Cinématique GMPe & Métrologie Réducteur)  
+
 **Contact** : www.louis.barthelemy@vibrateam.fr  
 
 ---
