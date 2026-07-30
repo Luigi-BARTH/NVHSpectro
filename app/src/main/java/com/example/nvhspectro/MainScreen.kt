@@ -6,6 +6,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -77,10 +78,16 @@ fun AppScreen(viewModel: MainViewModel) {
     val timeWindowSec by viewModel.timeWindowSec.collectAsState()
     val displayMode by viewModel.displayMode.collectAsState()
     val isFrozen by viewModel.isFrozen.collectAsState()
+
+    val kinematicsConfig by viewModel.kinematicsConfig.collectAsState()
+    val trackedHarmonicTags by viewModel.trackedHarmonicTags.collectAsState()
+    val emergenceReportEntries by viewModel.emergenceReportEntries.collectAsState()
     
     var showInfoDialog by remember { mutableStateOf(false) }
     var showSettingsDialog by remember { mutableStateOf(false) }
     var showExportDialog by remember { mutableStateOf(false) }
+    var showKinematicsDialog by remember { mutableStateOf(false) }
+    var showEmergenceReportDialog by remember { mutableStateOf(false) }
 
     Scaffold(
         topBar = {
@@ -108,20 +115,78 @@ fun AppScreen(viewModel: MainViewModel) {
             )
         },
         bottomBar = {
-            BottomAppBar {
+            BottomAppBar(
+                contentPadding = PaddingValues(horizontal = 4.dp, vertical = 2.dp)
+            ) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceEvenly,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Button(onClick = { viewModel.toggleRecording() }) {
-                        Text(if (isRecording) "Stop" else "Lecture")
+                    // 1. Bouton Analyse GMPe
+                    Button(
+                        onClick = { showKinematicsDialog = true },
+                        modifier = Modifier.weight(1f),
+                        contentPadding = PaddingValues(horizontal = 2.dp, vertical = 4.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = if (kinematicsConfig.isEnabled) Color(0xFF2E7D32) else MaterialTheme.colorScheme.primary,
+                            contentColor = Color.White
+                        )
+                    ) {
+                        Text(
+                            text = if (kinematicsConfig.isEnabled) "⚙️ GMPe (Actif)" else "⚙️ GMPe",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 1
+                        )
                     }
-                    Button(onClick = { viewModel.toggleFreeze() }) {
-                        Text(if (isFrozen) "Dégeler" else "Figer")
+
+                    // 2. Bouton Rapport d'émergence
+                    Button(
+                        onClick = { showEmergenceReportDialog = true },
+                        modifier = Modifier.weight(1f),
+                        contentPadding = PaddingValues(horizontal = 2.dp, vertical = 4.dp)
+                    ) {
+                        Text(
+                            text = "📊 Rapport (${emergenceReportEntries.size})",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 1
+                        )
                     }
-                    Button(onClick = { showExportDialog = true }) {
-                        Text("Exporter")
+
+                    // 3. Bouton Figer / Dégeler
+                    Button(
+                        onClick = { viewModel.toggleFreeze() },
+                        modifier = Modifier.weight(1f),
+                        contentPadding = PaddingValues(horizontal = 2.dp, vertical = 4.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = if (isFrozen) Color(0xFFD32F2F) else MaterialTheme.colorScheme.secondary
+                        )
+                    ) {
+                        Text(
+                            text = if (isFrozen) "▶ Dégeler" else "⏸ Figer",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 1
+                        )
+                    }
+
+                    // 4. Bouton Exporter (GARANTI VISIBLE !)
+                    Button(
+                        onClick = { showExportDialog = true },
+                        modifier = Modifier.weight(1f),
+                        contentPadding = PaddingValues(horizontal = 2.dp, vertical = 4.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = Color(0xFF0275D8)
+                        )
+                    ) {
+                        Text(
+                            text = "📸 Exporter",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 1
+                        )
                     }
                 }
             }
@@ -154,8 +219,45 @@ fun AppScreen(viewModel: MainViewModel) {
                     displayMode = displayMode,
                     isDetectorEnabled = isDetectorEnabled,
                     emergenceThresholdDb = emergenceThresholdDb,
-                    magnitudeGateDbFS = magnitudeGateDbFS
+                    magnitudeGateDbFS = magnitudeGateDbFS,
+                    trackedHarmonicTags = trackedHarmonicTags,
+                    kinematicsConfig = kinematicsConfig
                 )
+
+                // Bannière Kinématique GMPe en haut à droite du Spectrogramme
+                if (kinematicsConfig.isEnabled) {
+                    val effV1000 = kinematicsConfig.getEffectiveV1000()
+                    val curSpeed = telemetry.speedKmh
+                    val h1Hz = kinematicsConfig.calculateH1FreqHz(curSpeed)
+                    val curRpm = kinematicsConfig.calculateRpm(curSpeed).toInt()
+
+                    Surface(
+                        color = Color(0xCC121212),
+                        shape = RoundedCornerShape(6.dp),
+                        modifier = Modifier
+                            .align(Alignment.TopEnd)
+                            .padding(end = 12.dp, top = 8.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(8.dp)
+                                    .background(Color(0xFF00E676), CircleShape)
+                            )
+                            val titleText = if (kinematicsConfig.vehicleName.isNotEmpty()) kinematicsConfig.vehicleName else "GMPe Actif"
+                            Text(
+                                text = "🚘 $titleText | V1000: %.1f km/h | H1: %.1fHz (%d RPM)".format(effV1000, h1Hz, curRpm),
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color.White
+                            )
+                        }
+                    }
+                }
                 
                 // Sélecteur de Mode (Absolue vs TTNR) en haut à gauche du Spectrogramme
                 Row(
@@ -178,7 +280,7 @@ fun AppScreen(viewModel: MainViewModel) {
                 }
                 
                 if (fftHistory.isEmpty()) {
-                    Text(if (isRecording) "Analyse audio en cours..." else "Appuyez sur Lecture", color = Color.White)
+                    Text("Analyse audio & sonogramme en cours...", color = Color.White)
                 }
             }
 
@@ -306,6 +408,26 @@ fun AppScreen(viewModel: MainViewModel) {
                     showExportDialog = false
                     viewModel.exportData(pedalPercent, comments)
                 }
+            )
+        }
+
+        if (showKinematicsDialog) {
+            com.example.nvhspectro.ui.KinematicsDialog(
+                currentConfig = kinematicsConfig,
+                onDismiss = { showKinematicsDialog = false },
+                onSave = { newConfig ->
+                    showKinematicsDialog = false
+                    viewModel.updateKinematicsConfig(newConfig)
+                }
+            )
+        }
+
+        if (showEmergenceReportDialog) {
+            com.example.nvhspectro.ui.EmergenceReportDialog(
+                entries = emergenceReportEntries,
+                kinematicsConfig = kinematicsConfig,
+                onDismiss = { showEmergenceReportDialog = false },
+                onClearReport = { viewModel.clearEmergenceReport() }
             )
         }
     }

@@ -92,8 +92,8 @@ class FFTProcessor(val fftSize: Int = 2048) {
                     else -> -75.0 // -75 dBFS en HF: filtre 99.9% de la MLI benigne, capture 100% de la MLI défectueuse
                 }
 
-                // Filtre Passe-Haut NVH 30 Hz + Porte d'amplitude profilée
-                if (f < 30.0 || magnitudesDbFS[i] < minMagnitudeGate) {
+                // Filtre Passe-Haut NVH 43 Hz (Filtre Colormaps) + Porte d'amplitude profilée
+                if (f < 43.0 || magnitudesDbFS[i] < minMagnitudeGate) {
                     continue
                 }
 
@@ -111,6 +111,12 @@ class FFTProcessor(val fftSize: Int = 2048) {
                 val criticalBandwidth = 25.0 + 75.0 * Math.pow(1.0 + 1.4 * fKhz * fKhz, 0.69)
                 val localMaskingBandwidth = minOf(criticalBandwidth, 350.0)
                 val halfCbBins = (localMaskingBandwidth / (2.0 * df)).toInt().coerceAtLeast(4)
+
+                // Règle générique : La bande de bruit minimale doit être strictement >= 45 Hz (Filtre colormaps 43 Hz + 2 Hz de marge)
+                val minNoiseFreqHz = (i - halfCbBins) * df
+                if (minNoiseFreqHz < 45.0) {
+                    continue
+                }
 
                 val minBin = (i - halfCbBins).coerceAtLeast(0)
                 val maxBin = (i + halfCbBins).coerceAtMost(binCount - 1)

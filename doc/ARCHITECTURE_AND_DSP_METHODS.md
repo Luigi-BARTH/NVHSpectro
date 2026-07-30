@@ -3,7 +3,7 @@
 **Auteur** : Louis BARTHELEMY  
 **Société** : VIBRATEAM [Vibratec (Everenn Group)]  
 **Application** : NVH Spectro  
-**Version** : v7.0.0 (Build 2026)  
+**Version** : v8.0.0 (Build 2026)  
 **Contact** : www.louis.barthelemy@vibrateam.fr  
 
 ---

@@ -20,6 +20,8 @@ import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
+import com.example.nvhspectro.data.KinematicsConfig
+import com.example.nvhspectro.data.TrackedHarmonicTag
 import kotlin.math.max
 import kotlin.math.min
 
@@ -72,7 +74,9 @@ fun SpectrogramCanvas(
     displayMode: DisplayMode = DisplayMode.ABSOLUTE,
     isDetectorEnabled: Boolean = true,
     emergenceThresholdDb: Double = 2.5,
-    magnitudeGateDbFS: Double = -90.0
+    magnitudeGateDbFS: Double = -90.0,
+    trackedHarmonicTags: List<TrackedHarmonicTag> = emptyList(),
+    kinematicsConfig: KinematicsConfig = KinematicsConfig()
 ) {
     if (history.isEmpty()) {
         Canvas(modifier = modifier.fillMaxSize()) {}
@@ -372,6 +376,68 @@ fun SpectrogramCanvas(
                     native.drawCircle(beaconX, peakY, pulseRadius, beaconPulsePaint)
                     // 2. Centre lumineux solide
                     native.drawCircle(beaconX, peakY, 6f, beaconCenterPaint)
+                }
+            }
+
+            // --- DESSIN DES ÉTIQUETTES D'HARMONIQUES (H_k) AVEC RÉMANENCE VISUELLE ---
+            if (kinematicsConfig.isEnabled && trackedHarmonicTags.isNotEmpty()) {
+                val tagBgPaint = Paint().apply {
+                    style = Paint.Style.FILL
+                    isAntiAlias = true
+                }
+                val tagBorderPaint = Paint().apply {
+                    style = Paint.Style.STROKE
+                    strokeWidth = 2.5f
+                    isAntiAlias = true
+                }
+                val tagTextPaint = Paint().apply {
+                    color = AndroidColor.WHITE
+                    textSize = 22f
+                    typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+                    isAntiAlias = true
+                }
+
+                val nowMs = System.currentTimeMillis()
+                val maxHoldMs = (kinematicsConfig.holdTimeSec * 1000.0).toLong().coerceAtLeast(1000L)
+                var yOffsetAccumulator = 0f
+
+                for (tag in trackedHarmonicTags) {
+                    val ageMs = nowMs - tag.lastSeenTimestampMs
+                    val alphaRatio = (1f - (ageMs.toFloat() / maxHoldMs.toFloat())).coerceIn(0f, 1f)
+                    if (alphaRatio <= 0f) continue
+
+                    val binFraction = (tag.binIndex - minBin).toFloat() / displayedBinCount.coerceAtLeast(1)
+                    if (binFraction !in 0f..1f) continue
+
+                    val basePeakY = marginTop + ((1f - binFraction) * plotHeight).coerceIn(0f, plotHeight)
+                    val peakY = (basePeakY + yOffsetAccumulator).coerceIn(marginTop, plotBottom - 30f)
+
+                    val isCritical = tag.ttnrDb >= 6.0
+                    val primaryColor = if (isCritical) AndroidColor.parseColor("#FF1744") else AndroidColor.parseColor("#FFC107")
+                    
+                    val alphaInt = (alphaRatio * 255).toInt().coerceIn(0, 255)
+                    tagBgPaint.color = AndroidColor.parseColor("#E6121212")
+                    tagBgPaint.alpha = (alphaRatio * 230).toInt()
+                    
+                    tagBorderPaint.color = primaryColor
+                    tagBorderPaint.alpha = alphaInt
+                    
+                    tagTextPaint.color = primaryColor
+                    tagTextPaint.alpha = alphaInt
+
+                    val label = "${tag.orderName} (+%.1fdB)".format(tag.ttnrDb)
+                    val textWidth = tagTextPaint.measureText(label)
+                    val badgeH = 32f
+                    val badgeW = textWidth + 18f
+
+                    // Position X : bord droit décalé
+                    val tagX = plotRight - badgeW - 15f
+                    val tagYTop = (peakY - badgeH / 2f).coerceIn(marginTop, plotBottom - badgeH)
+
+                    // Dessin du badge d'harmonique
+                    native.drawRoundRect(tagX, tagYTop, tagX + badgeW, tagYTop + badgeH, 6f, 6f, tagBgPaint)
+                    native.drawRoundRect(tagX, tagYTop, tagX + badgeW, tagYTop + badgeH, 6f, 6f, tagBorderPaint)
+                    native.drawText(label, tagX + 9f, tagYTop + 22f, tagTextPaint)
                 }
             }
 

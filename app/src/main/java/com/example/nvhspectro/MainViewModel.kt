@@ -11,6 +11,7 @@ import android.os.Environment
 import android.provider.MediaStore
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.nvhspectro.data.*
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import kotlin.math.max
@@ -26,6 +27,28 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val audioRepository = AudioRepository()
     private val telemetryRepository = TelemetryRepository(application)
     private var fftProcessor = FFTProcessor(2048)
+    
+    // États Kinématiques GMPe & Rapport d'Émergence
+    private val _kinematicsConfig = MutableStateFlow(KinematicsConfig())
+    val kinematicsConfig: StateFlow<KinematicsConfig> = _kinematicsConfig.asStateFlow()
+
+    private val _trackedHarmonicTags = MutableStateFlow<List<TrackedHarmonicTag>>(emptyList())
+    val trackedHarmonicTags: StateFlow<List<TrackedHarmonicTag>> = _trackedHarmonicTags.asStateFlow()
+
+    private val _emergenceReportEntries = MutableStateFlow<List<EmergenceReportEntry>>(emptyList())
+    val emergenceReportEntries: StateFlow<List<EmergenceReportEntry>> = _emergenceReportEntries.asStateFlow()
+
+    private val candidatePeakMap = mutableMapOf<String, Long>()
+
+    fun updateKinematicsConfig(config: KinematicsConfig) {
+        _kinematicsConfig.value = config
+    }
+
+    fun clearEmergenceReport() {
+        candidatePeakMap.clear()
+        _emergenceReportEntries.value = emptyList()
+        _trackedHarmonicTags.value = emptyList()
+    }
     
     // Etats de l'UI
     private val _telemetryState = MutableStateFlow(TelemetryData())
@@ -132,8 +155,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _isFrozen.value = !_isFrozen.value
     }
     
-    private val _isRecording = MutableStateFlow(false)
+    private val _isRecording = MutableStateFlow(true)
     val isRecording: StateFlow<Boolean> = _isRecording.asStateFlow()
+
+    init {
+        startRecording()
+    }
 
     fun toggleRecording() {
         if (_isRecording.value) {
@@ -199,6 +226,112 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     curTelem.add(0, telemWithTtnr)
                     if (curTelem.size > maxHist) curTelem.removeLast()
                     _telemetryHistory.value = curTelem
+
+                    // Traitement des Harmoniques & Détection de Kinématique NVH avec Filtre Anti-Bruit (0.4s persistance min)
+                    val kConfig = _kinematicsConfig.value
+                    if (kConfig.isEnabled) {
+                        val speedKmh = _telemetryState.value.speedKmh
+                        val h1FreqHz = kConfig.calculateH1FreqHz(speedKmh)
+                        val nowMs = System.currentTimeMillis()
+                        
+                        if (h1FreqHz >= 0.5) {
+                            val nyquistFreq = 44100 / 2.0
+                            val totalBins = ttnrSpectrum.size
+                            val df = nyquistFreq / totalBins
+                            
+                            val newDetectedTags = mutableListOf<TrackedHarmonicTag>()
+                            val reportMap = _emergenceReportEntries.value.associateBy { it.orderName }.toMutableMap()
+                            
+                            val threshDb = _emergenceThresholdDb.value
+                            val gateDbFS = _magnitudeGateDbFS.value
+                            val activeCandidatesThisFrame = mutableSetOf<String>()
+                            
+                            for (i in 1 until totalBins - 1) {
+                                val ttnrVal = ttnrSpectrum[i]
+                                val absVal = if (i < magnitudes.size) magnitudes[i] else -120.0
+                                
+                                if (ttnrVal >= threshDb && absVal >= gateDbFS) {
+                                    val prevTtnr = ttnrSpectrum[i - 1]
+                                    val nextTtnr = ttnrSpectrum[i + 1]
+                                    if (ttnrVal >= prevTtnr && ttnrVal >= nextTtnr) {
+                                        val freqHz = i * df
+                                        val orderRatio = freqHz / h1FreqHz
+                                        val orderNearestHalf = (Math.round(orderRatio * 2.0) / 2.0)
+                                        
+                                        if (Math.abs(orderRatio - orderNearestHalf) <= 0.25 && orderNearestHalf >= 0.5) {
+                                            val orderName = if (orderNearestHalf % 1.0 == 0.0) "H${orderNearestHalf.toInt()}" else "H${orderNearestHalf}"
+                                            activeCandidatesThisFrame.add(orderName)
+
+                                            val firstSeen = candidatePeakMap.getOrPut(orderName) { nowMs }
+                                            val durationMs = nowMs - firstSeen
+
+                                            // Exigence : Détection continue d'au moins 0.4s (400 ms) pour valider une réelle émergence véhicule
+                                            if (durationMs >= 400L) {
+                                                val tag = TrackedHarmonicTag(
+                                                    orderName = orderName,
+                                                    orderValue = orderNearestHalf,
+                                                    freqHz = freqHz.toInt(),
+                                                    ttnrDb = ttnrVal,
+                                                    absDbFS = absVal,
+                                                    speedKmh = speedKmh,
+                                                    rpm = kConfig.calculateRpm(speedKmh),
+                                                    binIndex = i,
+                                                    lastSeenTimestampMs = nowMs
+                                                )
+                                                newDetectedTags.add(tag)
+                                                
+                                                // Accumulation dans le rapport d'émergences
+                                                val currentRpmInt = kConfig.calculateRpm(speedKmh).toInt()
+                                                val existing = reportMap[orderName]
+                                                if (existing != null) {
+                                                    existing.minSpeedKmh = minOf(existing.minSpeedKmh, speedKmh)
+                                                    existing.maxSpeedKmh = maxOf(existing.maxSpeedKmh, speedKmh)
+                                                    existing.minRpm = minOf(existing.minRpm, currentRpmInt)
+                                                    existing.maxRpm = maxOf(existing.maxRpm, currentRpmInt)
+                                                    existing.minFreqHz = minOf(existing.minFreqHz, freqHz.toInt())
+                                                    existing.maxFreqHz = maxOf(existing.maxFreqHz, freqHz.toInt())
+                                                    existing.maxEmergenceDb = maxOf(existing.maxEmergenceDb, ttnrVal)
+                                                    existing.countDetections++
+                                                    existing.lastTimestampMs = nowMs
+                                                } else {
+                                                    reportMap[orderName] = EmergenceReportEntry(
+                                                        orderName = orderName,
+                                                        orderValue = orderNearestHalf,
+                                                        minSpeedKmh = speedKmh,
+                                                        maxSpeedKmh = speedKmh,
+                                                        minRpm = currentRpmInt,
+                                                        maxRpm = currentRpmInt,
+                                                        minFreqHz = freqHz.toInt(),
+                                                        maxFreqHz = freqHz.toInt(),
+                                                        maxEmergenceDb = ttnrVal,
+                                                        countDetections = 1,
+                                                        lastTimestampMs = nowMs
+                                                    )
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            
+                            // Nettoyer les candidats absents de la trame courante
+                            candidatePeakMap.keys.retainAll(activeCandidatesThisFrame)
+
+                            // Mise à jour de la rémanence (fusionner les nouveaux tags avec les tags récents encore valides)
+                            val maxHoldMs = (kConfig.holdTimeSec * 1000.0).toLong().coerceAtLeast(1000L)
+                            val updatedTagMap = _trackedHarmonicTags.value
+                                .filter { nowMs - it.lastSeenTimestampMs < maxHoldMs }
+                                .associateBy { it.orderName }
+                                .toMutableMap()
+                            
+                            for (tag in newDetectedTags) {
+                                updatedTagMap[tag.orderName] = tag
+                            }
+                            
+                            _trackedHarmonicTags.value = updatedTagMap.values.sortedBy { it.orderValue }
+                            _emergenceReportEntries.value = reportMap.values.toList()
+                        }
+                    }
                 }
             }
         }
