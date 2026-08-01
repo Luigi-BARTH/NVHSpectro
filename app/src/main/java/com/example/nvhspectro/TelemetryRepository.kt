@@ -21,6 +21,8 @@ data class TelemetryData(
     val longitude: Double = 0.0,
     val accelerationG: Float = 0f,
     val ttnrDb: Float = 0f,
+    val trackedOrderDbFS: Double = -120.0,
+    val trackedOrderEmergenceDb: Double = 0.0,
     val gpsStatus: GpsStatus = GpsStatus.NONE,
     val timestampMs: Long = System.currentTimeMillis()
 )

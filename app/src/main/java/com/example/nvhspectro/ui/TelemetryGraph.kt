@@ -22,7 +22,7 @@ import kotlin.math.min
 enum class TelemetryMetric(val label: String, val unit: String) {
     SPEED("Vitesse", "km/h"),
     ACCELERATION("Accélération", "g"),
-    ALTITUDE("Altitude", "m"),
+    ORDER("Ordre", "dBFS"),
     TTNR("TTNR", "dB")
 }
 
@@ -36,11 +36,22 @@ fun TelemetryGraph(
     minFreq: Int = 0,
     maxFreq: Int = 10000,
     sampleRate: Int = 44100,
+    isKinematicsEnabled: Boolean = false,
+    selectedOrderName: String = "H18",
     modifier: Modifier = Modifier
 ) {
     val textPaint = remember {
         Paint().apply {
             color = android.graphics.Color.WHITE
+            textSize = 20f
+            typeface = Typeface.DEFAULT_BOLD
+            isAntiAlias = true
+        }
+    }
+
+    val warningTextPaint = remember {
+        Paint().apply {
+            color = android.graphics.Color.parseColor("#FF9100")
             textSize = 24f
             typeface = Typeface.DEFAULT_BOLD
             isAntiAlias = true
@@ -50,7 +61,7 @@ fun TelemetryGraph(
     val tickTextPaint = remember {
         Paint().apply {
             color = android.graphics.Color.LTGRAY
-            textSize = 22f
+            textSize = 20f
             isAntiAlias = true
         }
     }
@@ -90,7 +101,7 @@ fun TelemetryGraph(
     val badgeTextPaint = remember {
         Paint().apply {
             color = android.graphics.Color.parseColor("#00E5FF")
-            textSize = 24f
+            textSize = 22f
             typeface = Typeface.DEFAULT_BOLD
             isAntiAlias = true
         }
@@ -100,8 +111,8 @@ fun TelemetryGraph(
         val w = size.width
         val h = size.height
 
-        val marginLeft = 150f
-        val marginRight = 40f
+        val marginLeft = 190f
+        val marginRight = 30f
         val marginTop = 20f
         val marginBottom = 45f
 
@@ -256,21 +267,40 @@ fun TelemetryGraph(
                     }
                 }
             }
+        } else if (metric == TelemetryMetric.ORDER && (!isKinematicsEnabled || (history.isNotEmpty() && history.first().speedKmh <= 1.0f))) {
+            // =========================================================================
+            // MODE ORDRE (GMPe INACTIF OU VITESSE <= 1 km/h) : MESSAGE D'AVERTISSEMENT
+            // =========================================================================
+            drawIntoCanvas { canvas ->
+                val native = canvas.nativeCanvas
+                native.drawLine(marginLeft, marginTop, marginLeft, marginTop + plotHeight, axisPaint)
+                native.drawLine(marginLeft, marginTop + plotHeight, marginLeft + plotWidth, marginTop + plotHeight, axisPaint)
+
+                val msg = if (!isKinematicsEnabled) {
+                    "⚠️ Disponible uniquement en mode étude GMPe activé"
+                } else {
+                    "⚠️ Suivi d'Ordre inactif (< 1 km/h)"
+                }
+                val textW = warningTextPaint.measureText(msg)
+                val msgX = marginLeft + (plotWidth - textW) / 2f
+                val msgY = marginTop + plotHeight / 2f
+                native.drawText(msg, msgX, msgY, warningTextPaint)
+            }
         } else {
             // =========================================================================
-            // MODES TÉLÉMÉTRIE (Vitesse, Accélération, Altitude) : ABSCISSE = TEMPS (s)
+            // MODES TÉLÉMÉTRIE (Vitesse, Accélération, Ordre GMPe) : ABSCISSE = TEMPS (s)
             // =========================================================================
             val values = history.map { data ->
                 when (metric) {
                     TelemetryMetric.SPEED -> data.speedKmh.toDouble()
                     TelemetryMetric.ACCELERATION -> data.accelerationG.toDouble()
-                    TelemetryMetric.ALTITUDE -> data.altitude
+                    TelemetryMetric.ORDER -> data.trackedOrderDbFS.coerceIn(-120.0, 0.0)
                     else -> 0.0
                 }
             }
 
-            val minVal = if (values.isNotEmpty()) values.minOrNull() ?: 0.0 else 0.0
-            val maxVal = if (values.isNotEmpty()) values.maxOrNull() ?: 1.0 else 1.0
+            val minVal = if (metric == TelemetryMetric.ORDER) -110.0 else (if (values.isNotEmpty()) values.minOrNull() ?: 0.0 else 0.0)
+            val maxVal = if (metric == TelemetryMetric.ORDER) 0.0 else (if (values.isNotEmpty()) values.maxOrNull() ?: 1.0 else 1.0)
             val valRange = if (maxVal > minVal) maxVal - minVal else 1.0
 
             drawIntoCanvas { canvas ->
@@ -283,41 +313,72 @@ fun TelemetryGraph(
                 // Labels Y
                 val maxStr = String.format("%.1f %s", maxVal, metric.unit)
                 val minStr = String.format("%.1f %s", minVal, metric.unit)
-                native.drawText(maxStr, 10f, marginTop + 25f, textPaint)
-                native.drawText(minStr, 10f, marginTop + plotHeight, textPaint)
+                native.drawText(maxStr, 12f, marginTop + 22f, textPaint)
+                native.drawText(minStr, 12f, marginTop + plotHeight - 4f, textPaint)
             }
 
             if (values.size > 1) {
-                val path = Path()
                 val pointCount = values.size
                 val targetHistSize = max(historySize, pointCount)
 
-                for (i in 0 until pointCount) {
-                    val fractionX = i.toFloat() / max(1, targetHistSize - 1)
-                    val x = marginLeft + (1f - fractionX) * plotWidth
+                if (metric == TelemetryMetric.ORDER) {
+                    // Tracé avec nuancier dynamique d'émergence TTNR (Blanc -> Orange -> Rouge)
+                    for (i in 0 until pointCount - 1) {
+                        val fractionX1 = i.toFloat() / max(1, targetHistSize - 1)
+                        val x1 = marginLeft + (1f - fractionX1) * plotWidth
+                        val normY1 = ((values[i] - minVal) / valRange).toFloat()
+                        val y1 = (marginTop + plotHeight) - (normY1 * plotHeight)
 
-                    val normY = ((values[i] - minVal) / valRange).toFloat()
-                    val y = (marginTop + plotHeight) - (normY * plotHeight)
+                        val fractionX2 = (i + 1).toFloat() / max(1, targetHistSize - 1)
+                        val x2 = marginLeft + (1f - fractionX2) * plotWidth
+                        val normY2 = ((values[i + 1] - minVal) / valRange).toFloat()
+                        val y2 = (marginTop + plotHeight) - (normY2 * plotHeight)
 
-                    if (i == 0) {
-                        path.moveTo(x, y)
-                    } else {
-                        path.lineTo(x, y)
+                        val emergenceDb = history[i].trackedOrderEmergenceDb
+                        val segColor = when {
+                            emergenceDb >= 20.0 -> Color(0xFFD50000) // 5. Rouge Pourpre Intense (Émergence extrême >= 20 dB)
+                            emergenceDb >= 15.0 -> Color(0xFFFF1744) // 4. Rouge Vif (Émergence très forte 15 à 20 dB)
+                            emergenceDb >= 10.0 -> Color(0xFFFF5722) // 3. Orange-Rouge Vermillon (Émergence forte 10 à 15 dB)
+                            emergenceDb >= 5.0  -> Color(0xFFFF9800) // 2. Orange Fluo (Émergence franche 5 à 10 dB)
+                            emergenceDb > 0.0   -> Color(0xFFFFB74D) // 1. Orange Clair / Ambre (Émergence débutante 0 à 5 dB)
+                            else -> Color.White                      // Blanc (Aucune émergence <= 0 dB)
+                        }
+
+                        drawLine(
+                            color = segColor,
+                            start = Offset(x1, y1),
+                            end = Offset(x2, y2),
+                            strokeWidth = 4f
+                        )
                     }
-                }
+                } else {
+                    val path = Path()
+                    for (i in 0 until pointCount) {
+                        val fractionX = i.toFloat() / max(1, targetHistSize - 1)
+                        val x = marginLeft + (1f - fractionX) * plotWidth
 
-                val strokeColor = when (metric) {
-                    TelemetryMetric.SPEED -> Color(0xFF00E676) // Vert fluo
-                    TelemetryMetric.ACCELERATION -> Color(0xFFFF9100) // Orange vif
-                    TelemetryMetric.ALTITUDE -> Color(0xFF00B0FF) // Bleu cyan
-                    else -> Color.White
-                }
+                        val normY = ((values[i] - minVal) / valRange).toFloat()
+                        val y = (marginTop + plotHeight) - (normY * plotHeight)
 
-                drawPath(
-                    path = path,
-                    color = strokeColor,
-                    style = Stroke(width = 4f)
-                )
+                        if (i == 0) {
+                            path.moveTo(x, y)
+                        } else {
+                            path.lineTo(x, y)
+                        }
+                    }
+
+                    val strokeColor = when (metric) {
+                        TelemetryMetric.SPEED -> Color(0xFF00E676) // Vert fluo
+                        TelemetryMetric.ACCELERATION -> Color(0xFFFF9100) // Orange vif
+                        else -> Color.White
+                    }
+
+                    drawPath(
+                        path = path,
+                        color = strokeColor,
+                        style = Stroke(width = 4f)
+                    )
+                }
             }
         }
     }

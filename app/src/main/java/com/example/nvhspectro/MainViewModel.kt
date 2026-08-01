@@ -46,6 +46,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _kinematicsConfig.value = config
     }
 
+    fun updateSelectedTrackedOrder(order: Double) {
+        val currentConfig = _kinematicsConfig.value
+        _kinematicsConfig.value = currentConfig.copy(selectedTrackedOrder = order)
+    }
+
     fun clearEmergenceReport() {
         candidateTrackerList.clear()
         ttnrPersistenceCount = IntArray(0)
@@ -271,18 +276,38 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     if (curTtnr.size > maxHist) curTtnr.removeLast()
                     _fftHistoryTTNR.value = curTtnr
 
-                    // Synchronisation stricte 1-to-1 de la Télémétrie sur le temps d'affichage audio avec la valeur TTNR
+                    // Traitement des Harmoniques & Détection de Cinématique NVH (Actif UNIQUEMENT si Vitesse > 1.0 km/h)
+                    val kConfig = _kinematicsConfig.value
+                    val speedKmh = _telemetryState.value.speedKmh
+
+                    var trackedDbFS = -120.0
+                    var trackedEmergence = 0.0
+
+                    if (kConfig.isEnabled && speedKmh > 1.0f) {
+                        val h1FreqHz = kConfig.calculateH1FreqHz(speedKmh)
+                        if (h1FreqHz >= 0.5) {
+                            val nyquistFreq = 44100 / 2.0
+                            val totalBins = ttnrSpectrum.size
+                            val targetFreqHz = kConfig.selectedTrackedOrder * h1FreqHz
+                            val targetBin = ((targetFreqHz / nyquistFreq) * totalBins).toInt().coerceIn(0, totalBins - 1)
+
+                            trackedDbFS = if (targetBin in magnitudes.indices) magnitudes[targetBin] else -120.0
+                            trackedEmergence = if (targetBin in ttnrSpectrum.indices) ttnrSpectrum[targetBin] else 0.0
+                        }
+                    }
+
+                    // Synchronisation stricte 1-to-1 de la Télémétrie sur le temps d'affichage audio avec la valeur TTNR et l'Ordre Traqué
                     val ttnrMax = (ttnrSpectrum.maxOrNull() ?: 0.0).toFloat()
-                    val telemWithTtnr = _telemetryState.value.copy(ttnrDb = ttnrMax)
+                    val telemWithTtnr = _telemetryState.value.copy(
+                        ttnrDb = ttnrMax,
+                        trackedOrderDbFS = trackedDbFS,
+                        trackedOrderEmergenceDb = trackedEmergence
+                    )
 
                     val curTelem = _telemetryHistory.value.toMutableList()
                     curTelem.add(0, telemWithTtnr)
                     if (curTelem.size > maxHist) curTelem.removeLast()
                     _telemetryHistory.value = curTelem
-
-                    // Traitement des Harmoniques & Détection de Cinématique NVH (Actif UNIQUEMENT si Vitesse > 1.0 km/h)
-                    val kConfig = _kinematicsConfig.value
-                    val speedKmh = _telemetryState.value.speedKmh
 
                     if (kConfig.isEnabled && speedKmh > 1.0f) {
                         val h1FreqHz = kConfig.calculateH1FreqHz(speedKmh)

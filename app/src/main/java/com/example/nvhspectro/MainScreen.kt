@@ -19,7 +19,9 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.foundation.clickable
 import com.example.nvhspectro.ui.InfoDialog
+import com.example.nvhspectro.ui.OrderSelectionDialog
 import com.example.nvhspectro.ui.TelemetryGraph
 import com.example.nvhspectro.ui.TelemetryMetric
 
@@ -88,6 +90,7 @@ fun AppScreen(viewModel: MainViewModel) {
     var showExportDialog by remember { mutableStateOf(false) }
     var showKinematicsDialog by remember { mutableStateOf(false) }
     var showEmergenceReportDialog by remember { mutableStateOf(false) }
+    var showOrderSelectionDialog by remember { mutableStateOf(false) }
 
     Scaffold(
         topBar = {
@@ -335,29 +338,61 @@ fun AppScreen(viewModel: MainViewModel) {
                         GpsLedIndicator(status = telemetry.gpsStatus)
                     }
 
-                    // Encart des valeurs instantanées (Vitesse & Accélération)
+                    // Encart des valeurs instantanées (Vitesse, Accélération, Ordre Traqué)
+                    val ordVal = kinematicsConfig.selectedTrackedOrder
+                    val ordLabel = if (ordVal % 1.0 == 0.0) "H${ordVal.toInt()}" else "H%.1f".format(ordVal)
+
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceAround
                     ) {
                         KpiItem("Vitesse", String.format("%.1f km/h", telemetry.speedKmh))
                         KpiItem("Accélération", String.format("%.2f g", telemetry.accelerationG))
-                        KpiItem("Altitude", String.format("%.0f m", telemetry.altitude))
+                        KpiItem(
+                            "Ordre $ordLabel",
+                            when {
+                                !kinematicsConfig.isEnabled -> "Inactif"
+                                telemetry.speedKmh <= 1.0f -> "/"
+                                else -> String.format("%.1f dBFS", telemetry.trackedOrderDbFS)
+                            }
+                        )
                     }
 
                     Divider(color = Color.Gray.copy(alpha = 0.3f), thickness = 1.dp)
 
                     // Onglets Sélecteurs de métrique pour le graphique 2D
                     Row(
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 2.dp),
                         horizontalArrangement = Arrangement.SpaceEvenly,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         TelemetryMetric.values().forEach { metric ->
+                            val isOrderMetric = (metric == TelemetryMetric.ORDER)
+                            val isSelected = (selectedMetric == metric)
+                            val chipText = if (isOrderMetric && kinematicsConfig.isEnabled) {
+                                "Ordre ($ordLabel) ⚙️"
+                            } else {
+                                metric.label
+                            }
+
                             FilterChip(
-                                selected = (selectedMetric == metric),
-                                onClick = { viewModel.selectMetric(metric) },
-                                label = { Text(metric.label) }
+                                selected = isSelected,
+                                onClick = {
+                                    if (isOrderMetric && isSelected && kinematicsConfig.isEnabled) {
+                                        showOrderSelectionDialog = true
+                                    } else {
+                                        viewModel.selectMetric(metric)
+                                    }
+                                },
+                                label = {
+                                    Text(
+                                        text = chipText,
+                                        fontSize = 11.sp,
+                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
+                                    )
+                                }
                             )
                         }
                     }
@@ -376,7 +411,9 @@ fun AppScreen(viewModel: MainViewModel) {
                             historySize = viewModel.historySize,
                             ttnrSpectrum = latestTTNRSpectrum,
                             minFreq = minFreq,
-                            maxFreq = maxFreq
+                            maxFreq = maxFreq,
+                            isKinematicsEnabled = kinematicsConfig.isEnabled,
+                            selectedOrderName = ordLabel
                         )
                     }
                 }
@@ -386,6 +423,16 @@ fun AppScreen(viewModel: MainViewModel) {
         if (showInfoDialog) {
             InfoDialog(
                 onDismiss = { showInfoDialog = false }
+            )
+        }
+
+        if (showOrderSelectionDialog) {
+            OrderSelectionDialog(
+                currentOrder = kinematicsConfig.selectedTrackedOrder,
+                onOrderSelected = { newOrd ->
+                    viewModel.updateSelectedTrackedOrder(newOrd)
+                },
+                onDismiss = { showOrderSelectionDialog = false }
             )
         }
 

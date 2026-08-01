@@ -20,7 +20,8 @@ data class KinematicsConfig(
     val vehicleName: String = "",             // Identification du véhicule
     val motorName: String = "",               // Identification du moteur / GMPe
     val comments: String = "",                // Notes d'essai
-    val holdTimeSec: Double = 3.0             // Durée de rémanence visuelle des étiquettes (secondes)
+    val holdTimeSec: Double = 3.0,            // Durée de rémanence visuelle des étiquettes (secondes)
+    val selectedTrackedOrder: Double = 18.0   // Ordre spécifique sélectionné pour traçage 2D (ex: H18)
 ) {
     /**
      * Calcule le rayon dynamique sous charge de la roue (en mètres) à partir des dimensions pneu vendeur.
