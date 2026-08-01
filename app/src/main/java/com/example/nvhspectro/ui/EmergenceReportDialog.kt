@@ -47,19 +47,73 @@ fun EmergenceReportDialog(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = "📊 Rapport d'Émergence NVH",
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 16.sp
-                        )
-                        if (kinematicsConfig.isEnabled && (kinematicsConfig.vehicleName.isNotEmpty() || kinematicsConfig.motorName.isNotEmpty())) {
+                    Text(
+                        text = "📊 Rapport d'Émergence NVH",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 16.sp
+                    )
+                }
+
+                // Encadré Synthese GMPe : Informations Véhicule, V1000 & Commentaires Utilisateur
+                val effV1000 = kinematicsConfig.getEffectiveV1000()
+                val hasVehicleOrMotor = kinematicsConfig.vehicleName.isNotBlank() || kinematicsConfig.motorName.isNotBlank()
+                val hasComments = kinematicsConfig.comments.isNotBlank()
+
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
+                    shape = RoundedCornerShape(10.dp)
+                ) {
+                    Column(
+                        modifier = Modifier.padding(10.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
                             Text(
-                                text = "🚘 ${kinematicsConfig.vehicleName} ${if (kinematicsConfig.motorName.isNotEmpty()) "| ${kinematicsConfig.motorName}" else ""}",
+                                text = if (hasVehicleOrMotor) {
+                                    "🚘 ${kinematicsConfig.vehicleName.ifBlank { "Véhicule" }} ${if (kinematicsConfig.motorName.isNotBlank()) "| ⚡ ${kinematicsConfig.motorName}" else ""}"
+                                } else {
+                                    "🚘 Véhicule & GMPe"
+                                },
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                            
+                            // Badge V1000
+                            Surface(
+                                shape = RoundedCornerShape(4.dp),
+                                color = Color(0xFF0288D1)
+                            ) {
+                                Text(
+                                    text = "V1000 : %.1f km/h".format(effV1000),
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color.White,
+                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                )
+                            }
+                        }
+
+                        if (hasComments) {
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Text(
+                                text = "📝 Notes / Commentaires Utilisateur :",
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color(0xFF00E5FF)
+                            )
+                            Text(
+                                text = kinematicsConfig.comments,
                                 fontSize = 11.sp,
-                                color = MaterialTheme.colorScheme.primary,
-                                fontWeight = FontWeight.SemiBold
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                style = androidx.compose.ui.text.TextStyle(fontStyle = androidx.compose.ui.text.font.FontStyle.Italic),
+                                lineHeight = 15.sp
                             )
                         }
                     }

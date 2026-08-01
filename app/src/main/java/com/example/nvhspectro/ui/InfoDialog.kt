@@ -2,6 +2,7 @@ package com.example.nvhspectro.ui
 
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
@@ -10,9 +11,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.nvhspectro.R
@@ -21,6 +24,8 @@ import com.example.nvhspectro.R
 fun InfoDialog(
     onDismiss: () -> Unit
 ) {
+    val uriHandler = LocalUriHandler.current
+
     AlertDialog(
         onDismissRequest = onDismiss,
         title = {
@@ -57,7 +62,41 @@ fun InfoDialog(
                         InfoDetailRow("🏢 Société", "VIBRATEAM [Vibratec (Everenn Group)]")
                         InfoDetailRow("📱 Application", "NVH Spectro")
                         InfoDetailRow("🏷️ Version", "v8.0.0 (Version Avancée)")
-                        InfoDetailRow("✉️ Contact", "www.louis.barthelemy@vibrateam.fr")
+                        InfoDetailRow("✉️ Contact", "louis.barthelemy@vibrateam.fr")
+                        
+                        // Site Web VIBRATEC (Lien cliquable)
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    uriHandler.openUri("https://vibratec.fr/")
+                                }
+                        ) {
+                            Text(
+                                text = "🌐 Site Web VIBRATEC", 
+                                color = Color(0xFF00E5FF), 
+                                fontSize = 11.sp, 
+                                fontWeight = FontWeight.Bold
+                            )
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                Text(
+                                    text = "https://vibratec.fr/",
+                                    color = Color(0xFF38BDF8),
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    textDecoration = TextDecoration.Underline
+                                )
+                                Text(
+                                    text = "↗",
+                                    color = Color(0xFF38BDF8),
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
                     }
                 }
 
@@ -90,3 +129,4 @@ fun InfoDetailRow(label: String, value: String) {
         Text(text = value, color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
     }
 }
+
